@@ -2,7 +2,7 @@
 // highlighting is on, both toggles last until the page is reloaded.
 App.about = {
   name: 'AI Image Metadata Viewer',
-  version: '1.0.0',
+  version: '1.1.0',
   author: 'Techsorcist',
   repo: 'https://github.com/Techsorcist/ai-image-metadata-viewer',
   demo: 'https://techsorcist.github.io/ai-image-metadata-viewer/',
