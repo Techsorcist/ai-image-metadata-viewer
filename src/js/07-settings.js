@@ -4,7 +4,7 @@ App.about = {
   name: 'AI Image Metadata Viewer',
   version: '1.0.0',
   author: 'Techsorcist',
-  repo: '',   // repository link, will appear with publication
+  repo: 'https://github.com/Techsorcist/ai-image-metadata-viewer',
 };
 
 App.settings = {
