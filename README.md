@@ -4,17 +4,24 @@ You generated a great picture three months ago. Or not you — you just found it
 
 One HTML file. No install, no server, no account, no network.
 
+
+
 ## Getting started
 
-Grab [`ai-image-metadata-viewer.html`](https://github.com/Techsorcist/ai-image-metadata-viewer/releases/latest) from the latest release and open it in a browser. That is the entire installation. Keep it in Downloads, on a USB stick, bookmark it from `file://`, it does not care.
+- Grab **[ai-image-metadata-viewer.html](https://github.com/Techsorcist/ai-image-metadata-viewer/releases/latest)** from the latest release and open it in a browser. That is the entire installation. Keep it in Downloads, on a USB stick, bookmark it from `file://`, it does not care.
+- Prefer not to download anything? The **[Online Demo](https://techsorcist.github.io/ai-image-metadata-viewer/)** is the same file served from GitHub Pages. Your images are still processed inside your browser and go nowhere.
 
-Prefer not to download anything? The [online demo](https://techsorcist.github.io/ai-image-metadata-viewer/) is the same file served from GitHub Pages. Your images are still processed inside your browser and go nowhere.
 
-## Privacy first
 
-Everything happens in your browser tab. The page makes no network requests at all: no analytics, no CDN, no update checks, no fonts from somewhere else. Unplug the network and it keeps working exactly the same, which is the easiest audit you will do this year.
+## How it looks
 
-It also flags values that look like private data, such as local paths with your user name or personal notes, so you can see what a PNG carries before you post it. It never modifies your files.
+*[Screenshots will be de-uglyfied]*
+
+![SwarmUI image with the prompt, parameters and models](.github/assets/screenshot-swarmui.png)
+
+![ComfyUI graph with two sampler passes, text nodes and raw metadata](.github/assets/screenshot-comfyui.png)
+
+
 
 ## What it reads
 
@@ -27,6 +34,8 @@ It also flags values that look like private data, such as local paths with your 
 
 JPEG and WebP via EXIF `UserComment` are planned. Maybe.
 
+
+
 ## What it shows
 
 - A card with Prompt, Negative, parameters, and models: checkpoint, LoRA, VAE, ControlNet, upscaler, with weights and hashes (if possible).
@@ -37,12 +46,24 @@ JPEG and WebP via EXIF `UserComment` are planned. Maybe.
 - Several files at once, newest on top, with per-file removal, Clear history and Clear all.
 - Light and dark theme, following the system by default.
 
+
+
+## Privacy first
+
+Everything happens in your browser tab. The page makes no network requests at all: no analytics, no CDN, no update checks, no fonts from somewhere else. Unplug the network and it keeps working exactly the same, which is the easiest audit you will do this year.
+
+It also flags values that look like private data, such as local paths with your user name or personal notes, so you can see what a PNG carries before you post it. It never modifies your files.
+
+
+
 ## Development
 
 - `index.dev.html` loads the sources from `src/` directly. Edit, reload, no build step.
 - `./build.sh` glues everything into `ai-image-metadata-viewer.html` in the repository root. It needs a POSIX shell and nothing else. The built file is committed.
 - `tools/test/` holds synthetic sample images from `tools/make-synthetic.py`; `tools/check.html` runs all of them through the parsers at once. Serve the project over HTTP first, `fetch` refuses to work from `file://`, as it should.
 - Every push to `master` redeploys the demo on GitHub Pages. Pushing a tag like `v1.2.0` creates a GitHub Release with the built file attached; the tag must match the version in `src/js/07-settings.js`, or the release job will tell you so and quit.
+
+
 
 ## Acknowledgements
 
