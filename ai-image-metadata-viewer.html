@@ -1,0 +1,2826 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Image Metadata Viewer</title>
+<style>
+/* Theme tokens. Light by default, dark via prefers-color-scheme,
+   an explicit choice via html[data-theme] overrides the system setting. */
+:root {
+  --bg: #f4f5f8;
+  --bg-panel: #ffffff;
+  --bg-elevated: #eceef3;
+  --border: #d9dce4;
+  --text: #1a1c23;
+  --text-muted: #6f7180;
+  --accent: #1fa39b;
+  --accent-soft: rgba(31, 163, 155, 0.14);
+  --purple: #6f56d6;
+  --amber: #c98a1a;
+  --red: #d8463a;
+  --json-key: #6f56d6;
+  --json-string: #1f7a4d;
+  --json-number: #b35a00;
+  --json-bool: #c2185b;
+  --json-null: #8a8d99;
+  --ps-tag: #1fa39b;
+  --ps-paren: #c98a1a;
+  --ps-brace: #6f56d6;
+  --ps-break: #d8463a;
+  --ps-alt-0: rgba(111, 86, 214, 0.10);
+  --ps-alt-1: rgba(31, 163, 155, 0.12);
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+  --sans: Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a0a0d;
+    --bg-panel: #14151b;
+    --bg-elevated: #1c1d25;
+    --border: #23252f;
+    --text: #f2f3f7;
+    --text-muted: #9294a3;
+    --accent: #4fd8d0;
+    --accent-soft: rgba(79, 216, 208, 0.12);
+    --purple: #9b7ef5;
+    --amber: #f5b84e;
+    --red: #f2665b;
+    --json-key: #9b7ef5;
+    --json-string: #67e0d8;
+    --json-number: #f5b84e;
+    --json-bool: #f28fb0;
+    --json-null: #6f7180;
+    --ps-tag: #4fd8d0;
+    --ps-paren: #f5b84e;
+    --ps-brace: #9b7ef5;
+    --ps-break: #f2665b;
+    --ps-alt-0: rgba(155, 126, 245, 0.16);
+    --ps-alt-1: rgba(79, 216, 208, 0.14);
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0a0a0d;
+  --bg-panel: #14151b;
+  --bg-elevated: #1c1d25;
+  --border: #23252f;
+  --text: #f2f3f7;
+  --text-muted: #9294a3;
+  --accent: #4fd8d0;
+  --accent-soft: rgba(79, 216, 208, 0.12);
+  --purple: #9b7ef5;
+  --amber: #f5b84e;
+  --red: #f2665b;
+  --json-key: #9b7ef5;
+  --json-string: #67e0d8;
+  --json-number: #f5b84e;
+  --json-bool: #f28fb0;
+  --json-null: #6f7180;
+  --ps-tag: #4fd8d0;
+  --ps-paren: #f5b84e;
+  --ps-brace: #9b7ef5;
+  --ps-break: #f2665b;
+  --ps-alt-0: rgba(155, 126, 245, 0.16);
+  --ps-alt-1: rgba(79, 216, 208, 0.14);
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body { margin: 0; min-height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+body.dragging::after {
+  content: "Drop to open";
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  border: 3px dashed var(--accent);
+  pointer-events: none;
+  z-index: 10;
+}
+
+code, pre, .mono { font-family: var(--mono); }
+
+button.btn {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+button.btn:hover { border-color: var(--accent); }
+button.btn-ghost { background: transparent; }
+button.btn-sm { padding: 2px 8px; font-size: 12px; }
+
+/* Layout skeleton */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.brand {
+  font: inherit;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.brand:hover { color: var(--accent); }
+.topbar-actions { display: flex; gap: 8px; }
+
+.app {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px;
+}
+@media (max-width: 860px) {
+  .app { grid-template-columns: 1fr; }
+}
+
+.left { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.right { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+
+/* Left column */
+.dropzone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px 16px;
+  text-align: center;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: border-color 0.15s;
+}
+.dropzone:hover { border-color: var(--accent); }
+.dz-title { font-size: 16px; color: var(--text); }
+.dz-sub { font-size: 12px; margin-top: 4px; }
+.has-files .dropzone { padding: 10px; }
+.has-files .dz-title { font-size: 13px; }
+.has-files .dz-sub { display: none; }
+
+.filelist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.filelist-head { display: flex; align-items: center; gap: 8px; }
+.filelist-head .block-title { margin: 0; }
+.single-file .filelist, .single-file .filelist-head, #app:not(.has-files) .filelist, #app:not(.has-files) .filelist-head { display: none; }
+.fileitem {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 6px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.fileitem:hover { background: var(--bg-elevated); }
+.fileitem.active { border-color: var(--accent); background: var(--accent-soft); }
+.fileitem img { width: 44px; height: 44px; object-fit: cover; border-radius: var(--radius-sm); background: var(--bg-elevated); flex: none; }
+.fileitem-text { min-width: 0; flex: 1; }
+.fileitem-remove {
+  flex: none;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.fileitem:hover .fileitem-remove { display: inline-flex; }
+.fileitem-remove:hover { color: var(--red); background: var(--bg-panel); }
+.fileitem-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fileitem-sub { font-size: 12px; color: var(--text-muted); }
+
+.preview img {
+  display: block;
+  cursor: zoom-in;
+  max-width: 100%;
+  max-height: 60vh;
+  margin: 0 auto;
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+}
+.fileinfo:empty { display: none; }
+.fileinfo {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.info-row { display: flex; gap: 8px; padding: 2px 0; }
+.info-label { color: var(--text-muted); flex: none; width: 56px; }
+.info-value { word-break: break-all; }
+
+/* Right column */
+.empty {
+  color: var(--text-muted);
+  padding: 40px;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.genbadge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius);
+}
+.genbadge.gen-unknown, .genbadge.gen-none { border-left-color: var(--amber); }
+.gen-name { font-weight: 600; font-size: 15px; }
+.gen-detail { color: var(--text-muted); font-family: var(--mono); font-size: 12px; }
+.gen-keys { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+.gen-keys code {
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+}
+
+.warnings { display: flex; flex-direction: column; gap: 4px; }
+.warning {
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--amber) 14%, transparent);
+  color: var(--text);
+  border-left: 3px solid var(--amber);
+  font-size: 13px;
+}
+
+.sections { display: flex; flex-direction: column; gap: 10px; }
+.sec {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.sec-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.sec-head::-webkit-details-marker { display: none; }
+.sec-head::before {
+  content: "";
+  width: 0; height: 0;
+  border-left: 5px solid var(--text-muted);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.12s;
+  flex: none;
+}
+.sec[open] > .sec-head::before { transform: rotate(90deg); }
+.sec-key { font-family: var(--mono); font-weight: 600; }
+.sec-meta { color: var(--text-muted); font-size: 12px; }
+.sec-actions { margin-left: auto; display: flex; gap: 6px; }
+.sec-body { border-top: 1px solid var(--border); padding: 8px 12px; overflow-x: auto; }
+
+pre.rawtext {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* JSON tree */
+.jt-root { font-family: var(--mono); font-size: 13px; line-height: 1.55; }
+.jt { margin: 0; }
+.jt-body { padding-left: 18px; border-left: 1px solid var(--border); margin-left: 5px; }
+.jt-sum { cursor: pointer; list-style: none; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.jt-sum::-webkit-details-marker { display: none; }
+.jt-sum::before {
+  content: "";
+  align-self: center;
+  width: 0; height: 0;
+  border-left: 5px solid var(--text-muted);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.12s;
+  flex: none;
+}
+.jt[open] > .jt-sum::before { transform: rotate(90deg); }
+.jt-sum > .jt-key, .jt-sum > .jt-colon { margin-left: -6px; }
+.jt-sum > .jt-key { margin-left: 0; }
+.jt-row { padding-left: 11px; white-space: pre-wrap; word-break: break-word; }
+.jt-key { color: var(--json-key); }
+.jt-colon { color: var(--text-muted); }
+.jt-brace { color: var(--text-muted); }
+.jt-count { color: var(--text-muted); font-size: 11px; }
+.jt-hint { color: var(--accent); font-size: 12px; }
+.jt[open] > .jt-sum > .jt-count, .jt[open] > .jt-sum > .jt-hint, .jt[open] > .jt-sum > .jt-close { display: none; }
+.jt-string { color: var(--json-string); }
+.jt-number { color: var(--json-number); }
+.jt-boolean { color: var(--json-bool); }
+.jt-null, .jt-undefined { color: var(--json-null); }
+
+/* Generation card */
+.card { display: flex; flex-direction: column; gap: 10px; }
+.block-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin: 6px 0 2px; }
+.spacer { flex: 1; }
+
+.prompt-block {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.prompt-head { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-bottom: 1px solid var(--border); }
+.prompt-label { font-weight: 600; }
+.prompt-negative .prompt-label { color: var(--red); }
+.prompt-text {
+  margin: 0;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.55;
+  max-height: 40vh;
+  overflow: auto;
+}
+
+.seg { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.seg-label { font-size: 12px; color: var(--text-muted); margin-right: 6px; }
+.seg-btn {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.seg-btn:first-of-type { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.seg-btn:last-of-type { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.seg-btn + .seg-btn { margin-left: -1px; }
+.seg-btn.active { color: var(--text); border-color: var(--accent); background: var(--accent-soft); position: relative; z-index: 1; }
+.seg-inline .seg-btn { padding: 1px 8px; }
+
+.param-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-auto-flow: dense;
+  gap: 8px;
+}
+.param { grid-column: span 2; position: relative; }
+.hover-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.hover-copy .icon { width: 13px; height: 13px; }
+.param:hover .hover-copy { display: inline-flex; }
+.hover-copy:hover { color: var(--accent); }
+.param-narrow { grid-column: span 1; }
+
+/* Parameters and Models side by side on a wide screen */
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.split-single { grid-template-columns: 1fr; }
+.split-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.split-col .block-title { margin-top: 6px; }
+@media (max-width: 1180px) {
+  .split { grid-template-columns: 1fr; }
+  .param-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+}
+@media (max-width: 860px) {
+  .param-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
+.param {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  min-width: 0;
+}
+.param-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.param-value { display: flex; align-items: baseline; gap: 6px; font-family: var(--mono); font-size: 13px; margin-top: 2px; min-width: 0; }
+.param-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.param-narrow { padding-left: 8px; padding-right: 6px; }
+.param-narrow .param-label { font-size: 10px; letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.param-sub { flex: none; font-size: 12px; color: var(--text-muted); }
+
+.models { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 14px; }
+.model-row { display: flex; align-items: center; gap: 12px; padding: 3px 0; font-size: 13px; min-width: 0; }
+.model-name { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-weight { color: var(--text-muted); font-family: var(--mono); flex: none; }
+.model-hash { margin-left: auto; color: var(--text-muted); font-family: var(--mono); font-size: 12px; flex: none; max-width: 11ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.role {
+  flex: none;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  width: 92px;
+  text-align: center;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.role-checkpoint { color: var(--accent); }
+.role-lora { color: var(--purple); }
+.role-vae, .role-refiner, .role-upscaler { color: var(--amber); }
+
+.sec-flat .sec-body { padding: 0; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.tab {
+  font: inherit;
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.tab.active { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+
+table.kv { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.kv td { padding: 4px 12px; border-top: 1px solid var(--border); vertical-align: top; }
+table.kv tr:first-child td { border-top: 0; }
+.kv-key { font-family: var(--mono); color: var(--json-key); white-space: nowrap; width: 1%; }
+.kv-val { font-family: var(--mono); word-break: break-word; }
+
+.jt-deco { font-size: 11px; color: var(--amber); }
+.jt-unused > .jt-sum { opacity: 0.6; }
+
+.tab-unused, .tab-note { opacity: 0.7; }
+.tab-tag { margin-left: 6px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--amber); }
+.tab-note .tab-tag { color: var(--text-muted); }
+
+/* Enlarged image view */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.82);
+  cursor: zoom-out;
+  padding: 24px;
+}
+.lightbox img {
+  max-width: 100%;
+  max-height: calc(100vh - 80px);
+  object-fit: contain;
+  border-radius: var(--radius);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+}
+.lightbox-caption { color: #f2f3f7; font-size: 13px; opacity: 0.85; font-family: var(--mono); }
+
+/* Icons from the Lucide sprite */
+.icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: -3px;
+  flex: none;
+}
+button.btn { display: inline-flex; align-items: center; gap: 6px; }
+button.btn-sm .icon { width: 14px; height: 14px; }
+button.btn-icon { padding: 6px; }
+button.btn-icon.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.topbar-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+.dz-title .icon { width: 18px; height: 18px; color: var(--accent); }
+.tab-lock { width: 12px; height: 12px; margin-left: 6px; color: var(--amber); }
+
+/* Private label */
+.private {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-family: var(--sans);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 16%, transparent);
+  vertical-align: 1px;
+  cursor: help;
+}
+.private .icon { width: 10px; height: 10px; }
+
+/* Prompt syntax highlighting */
+.ps-tag, .ps-tagname { color: var(--ps-tag); }
+.ps-tagname { font-weight: 600; }
+.ps-paren, .ps-bracket, .ps-weight { color: var(--ps-paren); }
+.ps-weight { font-weight: 600; }
+.ps-brace, .ps-sep { color: var(--ps-brace); font-weight: 600; }
+.ps-break { color: var(--ps-break); font-weight: 700; }
+.ps-wildcard, .ps-embedding { color: var(--ps-brace); }
+.ps-comment { color: var(--text-muted); font-style: italic; }
+.ps-escape { color: var(--text-muted); }
+.ps-alt-0 { background: var(--ps-alt-0); border-radius: 2px; }
+.ps-alt-1 { background: var(--ps-alt-1); border-radius: 2px; }
+.ps-sep.ps-alt-0, .ps-sep.ps-alt-1, .ps-brace.ps-alt-0, .ps-brace.ps-alt-1, .ps-tag.ps-alt-0, .ps-tag.ps-alt-1, .ps-tagname.ps-alt-0, .ps-tagname.ps-alt-1 { background: none; }
+
+/* Parser notes: paler than warnings */
+.note {
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  border-left: 3px solid var(--border);
+  background: var(--bg-panel);
+  font-size: 12px;
+}
+
+/* Prompt editor */
+.prompt-edit { position: relative; max-height: 40vh; overflow: auto; }
+.prompt-under { max-height: none; overflow: visible; min-height: 38px; }
+.prompt-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-sizing: border-box;
+}
+.prompt-input::placeholder { color: var(--text-muted); }
+.prompt-input::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+.prompt-block.editing { border-color: var(--accent); }
+.prompt-empty { padding: 10px 12px; color: var(--text-muted); font-size: 13px; }
+button.btn-sm.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.edited-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--amber);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--amber) 16%, transparent);
+}
+
+/* About */
+.about-backdrop { cursor: default; }
+.about {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px 28px;
+  max-width: 420px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}
+.about-title { font-size: 18px; font-weight: 600; }
+.about-version { font-family: var(--mono); color: var(--text-muted); font-size: 12px; }
+.about-row { font-size: 14px; }
+.about-row a { color: var(--accent); word-break: break-all; }
+.about-muted { color: var(--text-muted); }
+.about-text { margin: 4px 0 0; font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+.about .btn { align-self: flex-end; margin-top: 8px; }
+
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// ---- src/js/00-util.js ----
+// Shared utilities: DOM building, formatting, clipboard.
+// All modules live in a single App namespace because the scripts
+// are loaded as classic <script> tags without modules or a bundler.
+window.App = window.App || {};
+
+App.util = (() => {
+  // h('div', { class: 'x', onClick: fn }, ...children) — a small DOM helper.
+  // on* attributes are attached as event handlers, boolean true yields an empty attribute,
+  // null/false are skipped. Children: nodes, strings, numbers, nested arrays.
+  function h(tag, attrs, ...children) {
+    const el = document.createElement(tag);
+    if (attrs && typeof attrs === 'object' && !(attrs instanceof Node) && !Array.isArray(attrs)) {
+      for (const [name, value] of Object.entries(attrs)) {
+        if (value == null || value === false) continue;
+        if (name.startsWith('on') && typeof value === 'function') {
+          el.addEventListener(name.slice(2).toLowerCase(), value);
+        } else if (name === 'dataset') {
+          Object.assign(el.dataset, value);
+        } else {
+          el.setAttribute(name, value === true ? '' : value);
+        }
+      }
+    } else if (attrs != null) {
+      children.unshift(attrs);
+    }
+    append(el, children);
+    return el;
+  }
+
+  function append(el, children) {
+    for (const child of children.flat(Infinity)) {
+      if (child == null || child === false) continue;
+      el.append(child instanceof Node ? child : document.createTextNode(String(child)));
+    }
+  }
+
+  function clear(el) {
+    while (el.firstChild) el.removeChild(el.firstChild);
+    return el;
+  }
+
+  function formatBytes(n) {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / 1024 / 1024).toFixed(2)} MB`;
+  }
+
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      // From file:// the clipboard API is sometimes unavailable; fall back to a textarea.
+      const ta = h('textarea', { style: 'position:fixed;opacity:0' }, text);
+      document.body.append(ta);
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+      ta.remove();
+      return ok;
+    }
+  }
+
+  // Downloads a string as a file. This is the only "write" inside the app,
+  // and it never touches the source image.
+  function downloadText(name, text, mime = 'application/json') {
+    const url = URL.createObjectURL(new Blob([text], { type: mime }));
+    const a = h('a', { href: url, download: name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  // Exception-free JSON parsing: returns null if the string is not JSON.
+  function tryParseJson(text) {
+    if (typeof text !== 'string') return null;
+    const s = text.trim();
+    if (!(s.startsWith('{') || s.startsWith('['))) return null;
+    try { return JSON.parse(s); } catch (_) { /* try to repair below */ }
+    // Python writes NaN and Infinity unquoted, JSON.parse fails on them.
+    const fixed = s.replace(/(:\s*)(-?Infinity|NaN)(?=\s*[,}\]])/g, '$1null');
+    if (fixed === s) return null;
+    try { return JSON.parse(fixed); } catch (_) { return null; }
+  }
+
+  return { h, append, clear, formatBytes, copyText, downloadText, tryParseJson };
+})();
+
+// ---- src/js/05-icons.js ----
+// Lucide icon sprite (https://lucide.dev, ISC). This file is generated by
+// src/icons/make-sprite.py from src/icons/*.svg, do not edit by hand.
+App.icons = (() => {
+  const SPRITE = '<symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol><symbol id="i-chevrons-down-up" viewBox="0 0 24 24"><path d="m7 20 5-5 5 5"/> <path d="m7 4 5 5 5-5"/></symbol><symbol id="i-chevrons-up-down" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5"/> <path d="m7 9 5-5 5 5"/></symbol><symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/> <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol><symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3"/> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/> <path d="m7 10 5 5 5-5"/></symbol><symbol id="i-highlighter" viewBox="0 0 24 24"><path d="m9 11-6 6v3h9l3-3"/> <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></symbol><symbol id="i-image-plus" viewBox="0 0 24 24"><path d="M16 5h6"/> <path d="M19 2v6"/> <path d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"/> <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/> <circle cx="9" cy="9" r="2"/></symbol><symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/> <path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol><symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></symbol><symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/> <path d="m15 5 4 4"/></symbol><symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/> <path d="M12 2v2"/> <path d="M12 20v2"/> <path d="m4.93 4.93 1.41 1.41"/> <path d="m17.66 17.66 1.41 1.41"/> <path d="M2 12h2"/> <path d="M20 12h2"/> <path d="m6.34 17.66-1.41 1.41"/> <path d="m19.07 4.93-1.41 1.41"/></symbol><symbol id="i-trash" viewBox="0 0 24 24"><path d="M10 11v6"/> <path d="M14 11v6"/> <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/> <path d="M3 6h18"/> <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol><symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 3v12"/> <path d="m17 8-5-5-5 5"/> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></symbol><symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/> <path d="m6 6 12 12"/></symbol>';
+
+  // Inserts the sprite into the document once, afterwards icons are taken via <use>.
+  function install() {
+    if (document.getElementById('icon-sprite')) return;
+    const holder = document.createElement('div');
+    holder.innerHTML = '<svg id="icon-sprite" xmlns="http://www.w3.org/2000/svg" style="display:none">' + SPRITE + '</svg>';
+    document.body.prepend(holder.firstChild);
+  }
+
+  // svg('sun') -> <svg class="icon"><use href="#i-sun"/></svg>
+  function svg(name, className) {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    el.setAttribute('class', 'icon' + (className ? ' ' + className : ''));
+    el.setAttribute('aria-hidden', 'true');
+    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    use.setAttribute('href', '#i-' + name);
+    el.append(use);
+    return el;
+  }
+
+  return { install, svg, names: ['check', 'chevrons-down-up', 'chevrons-up-down', 'copy', 'download', 'highlighter', 'image-plus', 'lock', 'moon', 'pencil', 'sun', 'trash', 'upload', 'x'] };
+})();
+
+// ---- src/js/07-settings.js ----
+// Session settings. Nothing is written to localStorage: the theme starts from the system one,
+// highlighting is on, both toggles last until the page is reloaded.
+App.about = {
+  name: 'AI Image Metadata Viewer',
+  version: '1.0.0',
+  author: 'Techsorcist',
+  repo: '',   // repository link, will appear with publication
+};
+
+App.settings = {
+  highlight: true,
+  theme: null,   // null = follow the system, 'light' | 'dark' after the button is pressed
+
+  effectiveTheme() {
+    if (this.theme) return this.theme;
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  },
+
+  toggleTheme() {
+    this.theme = this.effectiveTheme() === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = this.theme;
+  },
+};
+
+// ---- src/js/08-privacy.js ----
+// The "private" badge: values that leave together with the image and are
+// usually not expected there: absolute paths with a user name, personal notes.
+// The app strips nothing, it only shows.
+App.privacy = (() => {
+  const VALUE_PATTERNS = [
+    /^[A-Za-z]:[\\/]/,                 // C:\ or D:/
+    /[\\/](Users|home)[\\/][^\\/\s]+/, // /home/alice, C:\Users\alice, /Users/alice
+    /^\/(mnt|media|Volumes)\/[^/]+\//, // mounted drives
+    /^~\//,                            // home directory
+    /\\\\[^\\]+\\/,                    // network paths \\server\share
+  ];
+  const KEY_PATTERNS = [/^personalnote$/i, /^(author|artist|user|username|owner)$/i, /note$/i];
+
+  function isSensitive(key, value) {
+    if (typeof value !== 'string' || value.trim() === '') return false;
+    if (key != null && KEY_PATTERNS.some(re => re.test(String(key)))) return true;
+    return VALUE_PATTERNS.some(re => re.test(value));
+  }
+
+  function badge() {
+    const el = App.util.h('span', { class: 'private', title: 'Looks like private data: a local path, a user name or a personal note. It travels with the image.' },
+      App.icons.svg('lock'), 'private');
+    return el;
+  }
+
+  return { isSensitive, badge };
+})();
+
+// ---- src/js/10-png.js ----
+// Reading PNG text chunks: tEXt, zTXt, iTXt.
+// Knows nothing about generators, only extracts key/value pairs and dimensions.
+App.png = (() => {
+  const SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  const latin1 = new TextDecoder('latin1');
+  const utf8 = new TextDecoder('utf-8');
+
+  function isPng(bytes) {
+    return bytes.length >= 8 && SIGNATURE.every((b, i) => bytes[i] === b);
+  }
+
+  // Chunk generator: { type, data }. Stops at IEND.
+  function* chunks(bytes) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let offset = 8;
+    while (offset + 12 <= bytes.length) {
+      const length = view.getUint32(offset);
+      const type = String.fromCharCode(bytes[offset + 4], bytes[offset + 5], bytes[offset + 6], bytes[offset + 7]);
+      if (offset + 12 + length > bytes.length) {
+        throw new Error(`Chunk ${type} at offset ${offset} exceeds file size`);
+      }
+      yield { type, data: bytes.subarray(offset + 8, offset + 8 + length) };
+      offset += 12 + length;
+      if (type === 'IEND') break;
+    }
+  }
+
+  // A zlib stream (RFC 1950) is inflated with the native DecompressionStream('deflate').
+  async function inflate(data) {
+    if (typeof DecompressionStream === 'undefined') {
+      throw new Error('DecompressionStream is not available in this browser');
+    }
+    const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate'));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+
+  // Reads bytes up to NUL starting at from. Returns [slice, position after NUL].
+  function readUntilNul(data, from) {
+    const end = data.indexOf(0, from);
+    if (end < 0) throw new Error('missing NUL separator');
+    return [data.subarray(from, end), end + 1];
+  }
+
+  async function decodeText(chunk) {
+    const { type, data } = chunk;
+    let [keyBytes, pos] = readUntilNul(data, 0);
+    const key = latin1.decode(keyBytes);
+
+    if (type === 'tEXt') {
+      // Latin-1 per the spec, but generators write UTF-8 there (SwarmUI, ComfyUI),
+      // so we decode as UTF-8: for pure ASCII the result is the same.
+      return { key, value: utf8.decode(data.subarray(pos)), chunkType: type, compressed: false };
+    }
+
+    if (type === 'zTXt') {
+      const method = data[pos];
+      if (method !== 0) throw new Error(`unsupported zTXt compression method ${method}`);
+      const raw = await inflate(data.subarray(pos + 1));
+      return { key, value: utf8.decode(raw), chunkType: type, compressed: true };
+    }
+
+    if (type === 'iTXt') {
+      const compressed = data[pos] === 1;
+      const method = data[pos + 1];
+      pos += 2;
+      let langBytes, translatedBytes;
+      [langBytes, pos] = readUntilNul(data, pos);
+      [translatedBytes, pos] = readUntilNul(data, pos);
+      let payload = data.subarray(pos);
+      if (compressed) {
+        if (method !== 0) throw new Error(`unsupported iTXt compression method ${method}`);
+        payload = await inflate(payload);
+      }
+      return {
+        key,
+        value: utf8.decode(payload),
+        chunkType: type,
+        compressed,
+        language: latin1.decode(langBytes) || null,
+        translatedKey: utf8.decode(translatedBytes) || null,
+      };
+    }
+
+    throw new Error(`not a text chunk: ${type}`);
+  }
+
+  // Main entry point: dimensions from IHDR and the list of text entries.
+  // Errors in individual chunks do not abort parsing, they go to warnings.
+  async function read(bytes) {
+    const result = { width: null, height: null, bitDepth: null, colorType: null, entries: [], warnings: [] };
+    for (const chunk of chunks(bytes)) {
+      if (chunk.type === 'IHDR') {
+        const view = new DataView(chunk.data.buffer, chunk.data.byteOffset, chunk.data.byteLength);
+        result.width = view.getUint32(0);
+        result.height = view.getUint32(4);
+        result.bitDepth = chunk.data[8];
+        result.colorType = chunk.data[9];
+        continue;
+      }
+      if (chunk.type !== 'tEXt' && chunk.type !== 'zTXt' && chunk.type !== 'iTXt') continue;
+      try {
+        result.entries.push(await decodeText(chunk));
+      } catch (e) {
+        result.warnings.push(`Failed to read ${chunk.type} chunk: ${e.message}`);
+      }
+    }
+    return result;
+  }
+
+  return { isPng, read };
+})();
+
+// ---- src/js/20-source.js ----
+// The "metadata source" layer: turns a File into a unified record
+// regardless of the container. PNG only for now; EXIF/XMP for JPEG and WebP
+// get added here as well, without touching the detector or generator parsers.
+App.source = (() => {
+  function sniffFormat(bytes) {
+    if (App.png.isPng(bytes)) return 'png';
+    if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'jpeg';
+    if (bytes.length > 12 && String.fromCharCode(...bytes.subarray(0, 4)) === 'RIFF'
+      && String.fromCharCode(...bytes.subarray(8, 12)) === 'WEBP') return 'webp';
+    if (String.fromCharCode(...bytes.subarray(0, 3)) === 'GIF') return 'gif';
+    return 'unknown';
+  }
+
+  // Image record:
+  //   entries: [{ key, value, source, chunkType, json }] — json = parsed value or null
+  //   warnings: human-readable parsing problems
+  async function readFile(file) {
+    const record = {
+      id: `${file.name}:${file.size}:${file.lastModified}`,
+      name: file.name,
+      size: file.size,
+      url: URL.createObjectURL(file),
+      format: null,
+      width: null,
+      height: null,
+      entries: [],
+      warnings: [],   // file reading problems, shown prominently
+      notes: [],      // parser remarks, shown dimmed
+      generator: null,
+      card: null,
+    };
+
+    let bytes;
+    try {
+      bytes = new Uint8Array(await file.arrayBuffer());
+    } catch (e) {
+      record.format = 'unknown';
+      record.warnings.push(`Cannot read file: ${e.message}`);
+      return record;
+    }
+
+    record.format = sniffFormat(bytes);
+
+    if (record.format === 'png') {
+      try {
+        const png = await App.png.read(bytes);
+        record.width = png.width;
+        record.height = png.height;
+        record.warnings.push(...png.warnings);
+        record.entries = png.entries.map(e => ({
+          key: e.key,
+          value: e.value,
+          source: `PNG ${e.chunkType}${e.compressed ? ' (compressed)' : ''}`,
+          chunkType: e.chunkType,
+          json: App.util.tryParseJson(e.value),
+        }));
+      } catch (e) {
+        record.warnings.push(`PNG parse error: ${e.message}`);
+      }
+    } else if (record.format === 'jpeg' || record.format === 'webp') {
+      record.warnings.push(`${record.format.toUpperCase()} metadata (EXIF UserComment) is not supported yet, PNG only for now`);
+    } else {
+      record.warnings.push('Unsupported file format');
+    }
+
+    record.generator = App.detect.detect(record);
+    record.card = App.parsers.parse(record);
+    if (record.card) record.notes.push(...record.card.notes);
+    return record;
+  }
+
+  return { readFile, sniffFormat };
+})();
+
+// ---- src/js/30-detect.js ----
+// Detecting the generator by the set of keys and their content.
+// The order of checks matters: SwarmUI and Fooocus also write to parameters,
+// ComfyUI via Swarm writes prompt/workflow next to parameters.
+App.detect = (() => {
+  function gen(id, name, keys, detail) {
+    return { id, name, keys, detail: detail || null };
+  }
+
+  // ComfyUI API graph: an object whose values have class_type and inputs.
+  function isComfyApiGraph(json) {
+    if (!json || typeof json !== 'object' || Array.isArray(json)) return false;
+    const values = Object.values(json);
+    return values.length > 0 && values.some(n => n && typeof n === 'object' && 'class_type' in n && 'inputs' in n);
+  }
+
+  // ComfyUI UI graph: nodes[] and links[].
+  function isComfyWorkflow(json) {
+    return !!json && typeof json === 'object' && Array.isArray(json.nodes) && Array.isArray(json.links);
+  }
+
+  // A1111 string: has a parameter block like "Steps: 20, Sampler: ...".
+  function isA1111Text(text) {
+    return typeof text === 'string' && /(^|\n)Steps:\s*\d+/.test(text);
+  }
+
+  function a1111Flavor(text) {
+    const m = /Version:\s*([^,\n]+)/.exec(text);
+    if (!m) return { name: 'A1111 / Forge', detail: null };
+    const v = m[1].trim();
+    if (/^f\d/.test(v)) return { name: 'Forge', detail: v };
+    if (/^v?\d/.test(v)) return { name: 'AUTOMATIC1111', detail: v };
+    return { name: 'A1111-compatible', detail: v };
+  }
+
+  // The ComfyUI frontend version lives in workflow.extra.frontendVersion; the backend version is not in the file.
+  function comfyVersion(workflowEntry) {
+    const extra = workflowEntry && workflowEntry.json && workflowEntry.json.extra;
+    return extra && extra.frontendVersion ? `frontend ${extra.frontendVersion}` : null;
+  }
+
+  function detect(record) {
+    const byKey = Object.fromEntries(record.entries.map(e => [e.key, e]));
+    const has = k => k in byKey;
+    const keysOf = (...ks) => ks.filter(has);
+    const params = byKey.parameters;
+
+    if (params && params.json && params.json.sui_image_params) {
+      return gen('swarmui', 'SwarmUI', keysOf('parameters', 'prompt', 'workflow'), params.json.sui_image_params.swarm_version);
+    }
+
+    if (has('invokeai_metadata') || has('invokeai_graph') || has('invokeai_workflow')) {
+      return gen('invokeai', 'InvokeAI', keysOf('invokeai_metadata', 'invokeai_graph', 'invokeai_workflow'));
+    }
+    if (has('sd-metadata') || has('Dream')) {
+      return gen('invokeai-legacy', 'InvokeAI (legacy)', keysOf('sd-metadata', 'Dream'));
+    }
+
+    if (byKey.Software && /novelai/i.test(byKey.Software.value)) {
+      return gen('novelai', 'NovelAI', keysOf('Software', 'Title', 'Description', 'Comment', 'Source'), byKey.Source && byKey.Source.value);
+    }
+
+    if (has('fooocus_scheme') || (byKey.Comment && byKey.Comment.json && 'full_prompt' in byKey.Comment.json)) {
+      return gen('fooocus', 'Fooocus', keysOf('parameters', 'fooocus_scheme', 'Comment'), byKey.fooocus_scheme && byKey.fooocus_scheme.value);
+    }
+
+    if (params && isA1111Text(params.value)) {
+      const flavor = a1111Flavor(params.value);
+      const keys = keysOf('parameters', 'postprocessing');
+      const name = has('prompt') && byKey.prompt.json && isComfyApiGraph(byKey.prompt.json)
+        ? 'ComfyUI (A1111-compatible parameters)'
+        : flavor.name;
+      return gen('a1111', name, has('prompt') ? keys.concat(keysOf('prompt', 'workflow')) : keys, flavor.detail);
+    }
+    if (has('postprocessing')) {
+      return gen('a1111', 'AUTOMATIC1111 Extras', ['postprocessing']);
+    }
+
+    if (byKey.prompt && isComfyApiGraph(byKey.prompt.json)) {
+      return gen('comfyui', 'ComfyUI', keysOf('prompt', 'workflow'), comfyVersion(byKey.workflow));
+    }
+    if (byKey.workflow && isComfyWorkflow(byKey.workflow.json)) {
+      return gen('comfyui', 'ComfyUI (workflow only)', ['workflow'], comfyVersion(byKey.workflow));
+    }
+
+    if (has('prompt') && has('negative_prompt')) {
+      return gen('easydiffusion', 'Easy Diffusion', record.entries.map(e => e.key));
+    }
+
+    if (has('XML:com.adobe.xmp')) {
+      const xmp = byKey['XML:com.adobe.xmp'].value;
+      if (/drawthings|com\.liuliu/i.test(xmp)) return gen('drawthings', 'Draw Things', ['XML:com.adobe.xmp']);
+      return gen('xmp', 'XMP metadata', ['XML:com.adobe.xmp']);
+    }
+
+    if (record.entries.length === 0) return gen('none', 'No metadata', []);
+    return gen('unknown', 'Unknown', []);
+  }
+
+  return { detect, isComfyApiGraph, isComfyWorkflow, isA1111Text };
+})();
+
+// ---- src/js/40-tree.js ----
+// JSON tree on <details>/<summary>: collapsing is native, no handlers.
+// Object children are rendered lazily on first expansion so that ComfyUI graphs
+// with hundreds of nodes do not build thousands of DOM elements for nothing.
+App.tree = (() => {
+  const { h } = App.util;
+
+  function typeOf(value) {
+    if (value === null) return 'null';
+    if (Array.isArray(value)) return 'array';
+    return typeof value;
+  }
+
+  function formatScalar(value) {
+    if (typeof value === 'string') return JSON.stringify(value);
+    return String(value);
+  }
+
+  // Short hint in the header of a collapsed object: for ComfyUI nodes
+  // it is class_type and title, for the UI graph it is type and id.
+  function hint(value) {
+    if (Array.isArray(value) || value === null || typeof value !== 'object') return null;
+    if (typeof value.class_type === 'string') {
+      const title = value._meta && typeof value._meta.title === 'string' ? value._meta.title : null;
+      return title && title !== value.class_type ? `${value.class_type} · ${title}` : value.class_type;
+    }
+    if (typeof value.type === 'string' && 'id' in value) return `${value.type} #${value.id}`;
+    if (typeof value.name === 'string') return value.name;
+    return null;
+  }
+
+  function keyEl(key) {
+    if (key === null) return null;
+    return [h('span', { class: 'jt-key' }, String(key)), h('span', { class: 'jt-colon' }, ': ')];
+  }
+
+  function node(key, value, depth, opts) {
+    const kind = typeOf(value);
+    if (kind !== 'object' && kind !== 'array') {
+      const sensitive = kind === 'string' && App.privacy.isSensitive(key, value);
+      return h('div', { class: `jt-row${sensitive ? ' jt-private' : ''}` },
+        keyEl(key),
+        h('span', { class: `jt-val jt-${kind}` }, formatScalar(value)),
+        sensitive ? App.privacy.badge() : null);
+    }
+
+    const isArray = kind === 'array';
+    const entries = isArray ? value.map((v, i) => [i, v]) : Object.entries(value);
+    const open = isArray ? '[' : '{';
+    const close = isArray ? ']' : '}';
+
+    if (entries.length === 0) {
+      return h('div', { class: 'jt-row' }, keyEl(key), h('span', { class: 'jt-brace' }, open + close));
+    }
+
+    // decorate(value, key) may return { hint, className } for a specific object:
+    // this is how workflow marks nodes that are absent from the executed prompt.
+    const deco = opts.decorate ? opts.decorate(value, key) : null;
+    const details = h('details', { class: `jt${deco && deco.className ? ' ' + deco.className : ''}`, open: depth < opts.openDepth });
+    const summary = h('summary', { class: 'jt-sum' },
+      keyEl(key),
+      h('span', { class: 'jt-brace' }, open),
+      h('span', { class: 'jt-count' }, `${entries.length} ${isArray ? 'items' : 'keys'}`),
+      hint(value) ? h('span', { class: 'jt-hint' }, hint(value)) : null,
+      deco && deco.hint ? h('span', { class: 'jt-deco' }, deco.hint) : null,
+      h('span', { class: 'jt-brace jt-close' }, close));
+    const body = h('div', { class: 'jt-body' });
+
+    let filled = false;
+    const fill = () => {
+      if (filled) return;
+      filled = true;
+      for (const [k, v] of entries) body.append(node(k, v, depth + 1, opts));
+    };
+    details._fill = fill;
+    if (details.open) fill();
+    else details.addEventListener('toggle', fill, { once: true });
+
+    details.append(summary, body);
+    return details;
+  }
+
+  // render(value, { openDepth }) — the root element of the tree.
+  function render(value, options) {
+    const opts = Object.assign({ openDepth: 1 }, options);
+    return h('div', { class: 'jt-root' }, node(null, value, 0, opts));
+  }
+
+  // Expands all levels taking lazy rendering into account: open layer by layer
+  // until no closed details remain.
+  function expandAll(root) {
+    for (;;) {
+      const closed = root.querySelectorAll('details.jt:not([open])');
+      if (closed.length === 0) break;
+      closed.forEach(d => { if (d._fill) d._fill(); d.open = true; });
+    }
+  }
+
+  function collapseAll(root) {
+    root.querySelectorAll('details.jt[open]').forEach(d => { d.open = false; });
+    // Keep the root level open, otherwise only a single brace is visible.
+    const first = root.querySelector('details.jt');
+    if (first) first.open = true;
+  }
+
+  return { render, expandAll, collapseAll };
+})();
+
+// ---- src/js/50-ui.js ----
+// Renders the UI from state. No reactivity: data changes only when files are
+// added or a list item is selected, so the whole thing is redrawn.
+App.ui = (() => {
+  const { h, clear, formatBytes, copyText, downloadText } = App.util;
+
+  const state = {
+    files: [],      // records from App.source.readFile
+    selected: -1,   // index of the selected record
+  };
+
+  let els = {};
+
+  function mount(root) {
+    els.root = root;
+    App.icons.install();
+    const icon = App.icons.svg;
+    els.input = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', multiple: true, hidden: true,
+      onChange: e => { App.app.addFiles(e.target.files); e.target.value = ''; } });
+
+    els.fileList = h('ul', { class: 'filelist' });
+    els.fileListHead = h('div', { class: 'filelist-head' });
+    els.preview = h('div', { class: 'preview' });
+    els.fileInfo = h('div', { class: 'fileinfo' });
+    els.right = h('section', { class: 'right' });
+
+    const dropzone = h('div', { class: 'dropzone', onClick: () => els.input.click() },
+      h('div', { class: 'dz-title' }, icon('upload'), ' Drop images here'),
+      h('div', { class: 'dz-sub' }, 'or click to choose files. PNG for now.'));
+    els.dropzone = dropzone;
+
+    // Preview always sits right below the drop zone, the file list follows in opening order.
+    const left = h('aside', { class: 'left' },
+      dropzone,
+      els.preview,
+      els.fileInfo,
+      els.fileListHead,
+      els.fileList);
+
+    els.themeBtn = h('button', { class: 'btn btn-icon', title: 'Toggle light / dark theme', onClick: () => { App.settings.toggleTheme(); updateThemeButton(); } });
+    els.highlightBtn = h('button', { class: 'btn btn-icon', title: 'Toggle prompt syntax highlighting', onClick: () => { App.settings.highlight = !App.settings.highlight; updateHighlightButton(); render(); } }, icon('highlighter'));
+    updateThemeButton();
+    updateHighlightButton();
+
+    root.append(
+      h('header', { class: 'topbar' },
+        h('button', { class: 'brand', title: 'About', onClick: openAbout }, App.about.name),
+        h('div', { class: 'topbar-actions' },
+          h('button', { class: 'btn', onClick: () => els.input.click() }, icon('image-plus'), 'Add files'),
+          h('span', { class: 'topbar-sep' }),
+          els.highlightBtn,
+          els.themeBtn)),
+      h('main', { class: 'app' }, left, els.right),
+      els.input);
+
+    render();
+  }
+
+  function updateThemeButton() {
+    clear(els.themeBtn);
+    // Show what the button switches to: a sun in dark theme, a moon in light theme.
+    els.themeBtn.append(App.icons.svg(App.settings.effectiveTheme() === 'dark' ? 'sun' : 'moon'));
+  }
+
+  function updateHighlightButton() {
+    els.highlightBtn.classList.toggle('active', App.settings.highlight);
+  }
+
+  function render() {
+    const current = state.files[state.selected] || null;
+    renderFileList();
+    renderPreview(current);
+    renderRight(current);
+    els.root.classList.toggle('has-files', state.files.length > 0);
+    els.root.classList.toggle('single-file', state.files.length === 1);
+  }
+
+  function renderFileList() {
+    clear(els.fileList);
+    clear(els.fileListHead);
+    if (state.files.length > 1) {
+      els.fileListHead.append(
+        h('span', { class: 'block-title' }, `Files · ${state.files.length}`),
+        h('span', { class: 'spacer' }),
+        h('button', { class: 'btn btn-sm btn-ghost', title: 'Remove every file except the current one', onClick: () => App.app.clearOthers() }, App.icons.svg('x'), 'Clear history'),
+        h('button', { class: 'btn btn-sm btn-ghost', title: 'Remove all files from the list', onClick: () => App.app.clearAll() }, App.icons.svg('trash'), 'Clear all'));
+    }
+    // Newest files on top, indices remain indices into state.files.
+    state.files.map((rec, i) => [rec, i]).reverse().forEach(([rec, i]) => {
+      els.fileList.append(h('li', {
+        class: `fileitem${i === state.selected ? ' active' : ''}`,
+        title: rec.name,
+        onClick: () => select(i),
+      },
+        h('img', { src: rec.url, alt: '' }),
+        h('div', { class: 'fileitem-text' },
+          h('div', { class: 'fileitem-name' }, rec.name),
+          h('div', { class: 'fileitem-sub' }, rec.generator ? rec.generator.name : '')),
+        h('button', { class: 'fileitem-remove', title: 'Remove from the list', onClick: e => { e.stopPropagation(); App.app.removeFile(i); } }, App.icons.svg('x'))));
+    });
+  }
+
+  function renderPreview(rec) {
+    clear(els.preview);
+    clear(els.fileInfo);
+    if (!rec) return;
+    els.preview.append(h('img', { src: rec.url, alt: rec.name, title: 'Click to enlarge', onClick: () => openLightbox(rec) }));
+    els.fileInfo.append(infoRow('File', rec.name));
+    if (rec.width) {
+      els.fileInfo.append(
+        infoRow('Pixels', `${rec.width} × ${rec.height}`),
+        infoRow('Aspect', aspectLabel(rec.width, rec.height)));
+    }
+    els.fileInfo.append(
+      infoRow('Size', formatBytes(rec.size)),
+      infoRow('Format', rec.format.toUpperCase()));
+  }
+
+  function infoRow(label, value) {
+    return h('div', { class: 'info-row' }, h('span', { class: 'info-label' }, label), h('span', { class: 'info-value' }, value));
+  }
+
+  // Aspect ratio the way generators show it: the simplest of the common fractions
+  // within three percent (SwarmUI calls 1216×832 "3:2" although it is 1.46),
+  // otherwise the exact fraction; the decimal value is shown next to it.
+  const COMMON_RATIOS = [[1, 1], [4, 3], [3, 4], [3, 2], [2, 3], [16, 9], [9, 16], [5, 4], [4, 5], [21, 9], [9, 21], [7, 4], [4, 7], [5, 3], [3, 5], [16, 10], [10, 16], [7, 5], [5, 7], [2, 1], [1, 2]];
+  function aspectLabel(w, h) {
+    const value = w / h;
+    let best = null;
+    for (const [a, b] of COMMON_RATIOS) {
+      const diff = Math.abs(a / b - value) / value;
+      const exact = diff < 0.001;
+      if (diff > 0.03) continue;
+      // An exact match beats fraction simplicity; among approximations take the simplest.
+      if (!best || (exact && best.diff >= 0.001) || (exact === best.diff < 0.001 && a + b < best.a + best.b)) best = { a, b, diff };
+    }
+    const decimal = value.toFixed(2);
+    if (best) return `${best.a}:${best.b}${best.diff > 0.001 ? ' ≈' : ''} (${decimal})`;
+    const g = gcd(w, h);
+    const a = w / g, b = h / g;
+    return a <= 64 && b <= 64 ? `${a}:${b} (${decimal})` : decimal;
+  }
+  function gcd(a, b) { return b === 0 ? a : gcd(b, a % b); }
+
+  // "About" card shown on header click.
+  function openAbout() {
+    const close = () => { box.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = e => { if (e.key === 'Escape') close(); };
+    const a = App.about;
+    const box = h('div', { class: 'lightbox about-backdrop', onClick: e => { if (e.target === box) close(); } },
+      h('div', { class: 'about' },
+        h('div', { class: 'about-title' }, a.name),
+        h('div', { class: 'about-version' }, `version ${a.version}`),
+        h('div', { class: 'about-row' }, 'by ', h('strong', a.author)),
+        h('div', { class: 'about-row' }, a.repo
+          ? h('a', { href: a.repo, target: '_blank', rel: 'noopener' }, a.repo)
+          : h('span', { class: 'about-muted' }, 'Repository link coming soon')),
+        h('p', { class: 'about-text' }, 'Everything runs in your browser. No image, prompt or metadata ever leaves your machine.'),
+        h('p', { class: 'about-text' }, 'Thank you for using it.'),
+        h('button', { class: 'btn', onClick: close }, 'Close')));
+    document.addEventListener('keydown', onKey);
+    document.body.append(box);
+  }
+
+  // Enlarged view over the page. A click anywhere or Esc closes it.
+  function openLightbox(rec) {
+    const close = () => { box.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = e => { if (e.key === 'Escape') close(); };
+    const box = h('div', { class: 'lightbox', onClick: close },
+      h('img', { src: rec.url, alt: rec.name }),
+      h('div', { class: 'lightbox-caption' }, `${rec.name} · ${rec.width ? rec.width + ' × ' + rec.height : ''}`));
+    document.addEventListener('keydown', onKey);
+    document.body.append(box);
+  }
+
+  function renderRight(rec) {
+    clear(els.right);
+    if (!rec) {
+      els.right.append(h('div', { class: 'empty' }, 'Metadata will appear here.'));
+      return;
+    }
+
+    els.right.append(renderGenerator(rec));
+
+    if (rec.warnings.length || rec.notes.length) {
+      els.right.append(h('div', { class: 'warnings' },
+        rec.warnings.map(w => h('div', { class: 'warning' }, w)),
+        rec.notes.map(n => h('div', { class: 'note' }, n))));
+    }
+
+    if (rec.entries.length === 0) {
+      els.right.append(h('div', { class: 'empty' }, 'No text chunks found in this file.'));
+      return;
+    }
+
+    // Card on top if the generator was parsed; raw sections are collapsed then.
+    // Without a card there is nothing else to show, so raw data is expanded right away.
+    const hasCard = !!rec.card;
+    if (hasCard) els.right.append(App.card.render(rec));
+    els.right.append(h('div', { class: 'sections' },
+      hasCard ? h('div', { class: 'block-title' }, 'Raw metadata') : null,
+      rec.entries.map(e => renderEntry(e, !hasCard, rec))));
+  }
+
+  function renderGenerator(rec) {
+    const g = rec.generator || { name: 'Unknown', keys: [] };
+    return h('div', { class: `genbadge gen-${g.id}` },
+      h('span', { class: 'gen-name' }, g.name),
+      g.detail ? h('span', { class: 'gen-detail' }, g.detail) : null,
+      g.keys.length ? h('span', { class: 'gen-keys' }, g.keys.map(k => h('code', k))) : null);
+  }
+
+  function renderEntry(entry, open, rec) {
+    const isJson = entry.json !== null;
+    const body = h('div', { class: 'sec-body' });
+    let tree = null;
+    if (isJson) {
+      tree = App.tree.render(entry.json, { openDepth: 1, decorate: decoratorFor(entry, rec) });
+      body.append(tree);
+    } else {
+      body.append(h('pre', { class: 'rawtext' }, entry.value));
+    }
+
+    const icon = App.icons.svg;
+    const section = h('details', { class: 'sec', open });
+    const actions = h('div', { class: 'sec-actions', onClick: e => e.preventDefault() },
+      isJson ? h('button', { class: 'btn btn-sm', title: 'Expand all', onClick: () => { section.open = true; App.tree.expandAll(tree); } }, icon('chevrons-up-down'), 'Expand') : null,
+      isJson ? h('button', { class: 'btn btn-sm', title: 'Collapse all', onClick: () => App.tree.collapseAll(tree) }, icon('chevrons-down-up'), 'Collapse') : null,
+      h('button', { class: 'btn btn-sm', title: 'Copy to clipboard', onClick: e => flash(e.currentTarget, copyText(isJson ? JSON.stringify(entry.json, null, 2) : entry.value)) }, icon('copy'), 'Copy'),
+      h('button', { class: 'btn btn-sm', title: 'Download as a file', onClick: () => downloadText(
+        `${entry.key}.${isJson ? 'json' : 'txt'}`,
+        isJson ? JSON.stringify(entry.json, null, 2) : entry.value,
+        isJson ? 'application/json' : 'text/plain') }, icon('download'), 'Download'));
+
+    section.append(
+      h('summary', { class: 'sec-head' },
+        h('span', { class: 'sec-key' }, entry.key),
+        h('span', { class: 'sec-meta' }, `${entry.source} · ${isJson ? 'JSON' : 'text'} · ${formatBytes(entry.value.length)}`),
+        actions),
+      body);
+    return section;
+  }
+
+  // For the ComfyUI UI graph, mark nodes missing from the executed prompt,
+  // as well as bypass (mode 4) and mute (mode 2).
+  function decoratorFor(entry, rec) {
+    if (entry.key !== 'workflow' || !rec) return null;
+    const executed = rec.card && rec.card.executed ? rec.card.executed : null;
+    return (value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value) || !('id' in value) || typeof value.type !== 'string') return null;
+      const notes = [];
+      if (value.mode === 4) notes.push('bypassed');
+      if (value.mode === 2) notes.push('muted');
+      if (executed && !executed.has(String(value.id))) notes.push('not executed');
+      return notes.length ? { hint: notes.join(', '), className: 'jt-unused' } : null;
+    };
+  }
+
+  // Brief feedback on the copy button: swap the content and restore it.
+  async function flash(button, promise) {
+    const saved = Array.from(button.childNodes);
+    const ok = await promise;
+    clear(button);
+    button.append(App.icons.svg(ok ? 'check' : 'x'), ok ? 'Copied' : 'Failed');
+    setTimeout(() => { clear(button); button.append(...saved); }, 1200);
+  }
+
+  function select(i) {
+    state.selected = i;
+    render();
+  }
+
+  return { state, mount, render, select, flash };
+})();
+
+// ---- src/js/55-parsers.js ----
+// Registry of generator parsers and the unified card model.
+//
+// Each parser receives a record (see 20-source.js) and returns a card:
+// {
+//   positive: { text, original },      // original: the source prompt before wildcard expansion, or null
+//   negative: { text, original },
+//   params:   [{ label, value, sub }], // card grid in display order, sub is the second line
+//   models:   [{ role, name, hash, weight, detail }],   // role: checkpoint | lora | vae | upscaler | embedding | refiner | controlnet
+//   extra:    [{ key, value }],        // everything that did not fit the card, as a table
+//   passes:   [{ label, positive, negative, params }] | null,   // ComfyUI: multiple samplers
+//   textNodes:[{ id, classType, title, field, text }] | null,   // ComfyUI: all text nodes
+//   notes:    [string],                // parser remarks, shown as warnings
+// }
+App.parsers = (() => {
+  const registry = {};
+
+  function register(generatorId, fn) {
+    registry[generatorId] = fn;
+  }
+
+  function emptyCard() {
+    return {
+      positive: { text: '', original: null },
+      negative: { text: '', original: null },
+      params: [],
+      models: [],
+      extra: [],
+      passes: null,
+      textNodes: null,
+      notes: [],
+    };
+  }
+
+  // Adds a parameter, skipping empty values. sub is the card's second line
+  // for a numeric suffix like "× 1.5" or "@ 0.75".
+  function addParam(card, label, value, sub) {
+    if (value === null || value === undefined || value === '') return;
+    card.params.push({ label, value: String(value), sub: sub == null ? null : String(sub) });
+  }
+
+  function addExtra(card, key, value) {
+    if (value === null || value === undefined || value === '') return;
+    card.extra.push({ key, value: typeof value === 'object' ? JSON.stringify(value) : String(value) });
+  }
+
+  function parse(record) {
+    const id = record.generator && record.generator.id;
+    const fn = registry[id];
+    if (!fn) return null;
+    try {
+      return fn(record);
+    } catch (e) {
+      record.warnings.push(`Parser for ${record.generator.name} failed: ${e.message}`);
+      return null;
+    }
+  }
+
+  return { register, parse, emptyCard, addParam, addExtra };
+})();
+
+// ---- src/js/60-parse-a1111.js ----
+// Text format of AUTOMATIC1111 / Forge / SD.Next and compatible tools:
+//   prompt
+//   Negative prompt: negative
+//   Steps: 20, Sampler: Euler a, CFG scale: 7, Seed: 1, Size: 512x512, Model hash: abc, Model: x, ...
+App.parsers.register('a1111', (record) => {
+  const { emptyCard, addParam, addExtra } = App.parsers;
+  const card = emptyCard();
+  const entry = record.entries.find(e => e.key === 'parameters');
+  const post = record.entries.find(e => e.key === 'postprocessing');
+  if (!entry) {
+    if (post) card.extra.push({ key: 'postprocessing', value: post.value });
+    return card;
+  }
+
+  const { positive, negative, pairs } = App.parsers.parseA1111Text(entry.value);
+  card.positive.text = positive;
+  card.negative.text = negative;
+
+  // Card order is fixed, the rest goes to extra.
+  const take = (key) => {
+    if (!(key in pairs)) return null;
+    const v = pairs[key];
+    delete pairs[key];
+    return v;
+  };
+
+  const model = take('Model');
+  const modelHash = take('Model hash');
+  const vae = take('VAE');
+  const vaeHash = take('VAE hash');
+
+  addParam(card, 'Model', model);
+  addParam(card, 'Seed', take('Seed'));
+  addParam(card, 'Steps', take('Steps'));
+  addParam(card, 'CFG', take('CFG scale'));
+  addParam(card, 'Sampler', take('Sampler'));
+  addParam(card, 'Scheduler', take('Schedule type'));
+  addParam(card, 'Size', take('Size'));
+  addParam(card, 'Clip skip', take('Clip skip'));
+  addParam(card, 'Denoise', take('Denoising strength'));
+  addParam(card, 'Hires upscale', take('Hires upscale'));
+  addParam(card, 'Hires upscaler', take('Hires upscaler'));
+  addParam(card, 'Hires steps', take('Hires steps'));
+  addParam(card, 'Version', take('Version'));
+
+  if (model || modelHash) card.models.push({ role: 'checkpoint', name: model || '(unknown)', hash: modelHash || null, weight: null });
+  if (vae) card.models.push({ role: 'vae', name: vae, hash: vaeHash || null, weight: null });
+
+  // LoRA: weights from <lora:name:w> tags in the prompt, hashes from "Lora hashes".
+  const loraWeights = {};
+  for (const m of positive.matchAll(/<lora:([^:>]+)(?::([\d.]+))?[^>]*>/g)) loraWeights[m[1]] = m[2] || null;
+  const loraHashes = App.parsers.parseHashList(take('Lora hashes'));
+  const loraNames = new Set([...Object.keys(loraWeights), ...Object.keys(loraHashes)]);
+  for (const name of loraNames) {
+    card.models.push({ role: 'lora', name, hash: loraHashes[name] || null, weight: loraWeights[name] || null });
+  }
+  const tiHashes = App.parsers.parseHashList(take('TI hashes'));
+  for (const [name, hash] of Object.entries(tiHashes)) card.models.push({ role: 'embedding', name, hash, weight: null });
+
+  for (const [k, v] of Object.entries(pairs)) addExtra(card, k, v);
+  if (post) card.extra.push({ key: 'postprocessing', value: post.value });
+  return card;
+});
+
+// Parsing of the string itself, kept separate: Fooocus in A1111 mode uses it too,
+// and EXIF UserComment will in the future.
+App.parsers.parseA1111Text = function parseA1111Text(text) {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  let paramIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/^Steps:\s*\d+/.test(lines[i])) { paramIdx = i; break; }
+  }
+  const head = (paramIdx >= 0 ? lines.slice(0, paramIdx) : lines).join('\n');
+  const paramLine = paramIdx >= 0 ? lines[paramIdx] : '';
+
+  let positive = head;
+  let negative = '';
+  const negMatch = /(^|\n)Negative prompt:\s?/.exec(head);
+  if (negMatch) {
+    positive = head.slice(0, negMatch.index);
+    negative = head.slice(negMatch.index + negMatch[0].length);
+  }
+
+  // "Key: value" pairs; the value runs either up to a comma or is quoted (may contain commas and JSON).
+  const pairs = {};
+  const re = /\s*([^,:]+?):\s*("(?:\\.|[^\\"])*"|[^,]*)(?:,|$)/g;
+  let m;
+  while ((m = re.exec(paramLine)) !== null) {
+    if (m.index === re.lastIndex) re.lastIndex++;
+    const key = m[1].trim();
+    let value = m[2].trim();
+    if (value.startsWith('"') && value.endsWith('"')) {
+      try { value = JSON.parse(value); } catch (_) { value = value.slice(1, -1); }
+    }
+    if (key) pairs[key] = value;
+  }
+
+  return { positive: positive.trim(), negative: negative.trim(), pairs };
+};
+
+// "name: hash, name2: hash2" or a JSON object -> { name: hash }
+App.parsers.parseHashList = function parseHashList(value) {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  const out = {};
+  for (const part of String(value).split(',')) {
+    const i = part.lastIndexOf(':');
+    if (i > 0) out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
+  }
+  return out;
+};
+
+// ---- src/js/61-parse-swarmui.js ----
+// SwarmUI: parameters = JSON { sui_image_params, sui_extra_data, sui_models }.
+App.parsers.register('swarmui', (record) => {
+  const { emptyCard, addParam, addExtra } = App.parsers;
+  const card = emptyCard();
+  const json = record.entries.find(e => e.key === 'parameters').json;
+  const p = Object.assign({}, json.sui_image_params || {});
+  const extraData = Object.assign({}, json.sui_extra_data || {});
+  const models = Array.isArray(json.sui_models) ? json.sui_models : [];
+
+  const take = (key) => {
+    if (!(key in p)) return null;
+    const v = p[key];
+    delete p[key];
+    return v;
+  };
+  const takeExtra = (key) => {
+    if (!(key in extraData)) return null;
+    const v = extraData[key];
+    delete extraData[key];
+    return v;
+  };
+
+  card.positive.text = String(take('prompt') || '');
+  card.negative.text = String(take('negativeprompt') || '');
+  const originalPrompt = takeExtra('original_prompt');
+  const originalNegative = takeExtra('original_negativeprompt');
+  if (originalPrompt != null && originalPrompt !== card.positive.text) card.positive.original = String(originalPrompt);
+  if (originalNegative != null && originalNegative !== card.negative.text) card.negative.original = String(originalNegative);
+
+  // Checkpoint name: either the explicit model field or the parameter referenced by sui_models.
+  const hashes = {};
+  let modelName = take('model');
+  for (const m of models) {
+    if (m && m.name) hashes[stripExt(m.name)] = m.hash || null;
+    if (!modelName && m && m.param && m.param !== 'loras' && m.param in p) modelName = take(m.param);
+  }
+
+  const width = take('width');
+  const height = take('height');
+  const size = width && height ? `${width} × ${height}` : null;
+  const aspect = take('aspectratio');
+
+  addParam(card, 'Model', modelName);
+  addParam(card, 'Seed', take('seed'));
+  addParam(card, 'Steps', take('steps'));
+  addParam(card, 'CFG', take('cfgscale'));
+  addParam(card, 'Sampler', take('sampler'));
+  addParam(card, 'Scheduler', take('scheduler'));
+  addParam(card, 'Size', size ? (aspect ? `${size} (${aspect})` : size) : aspect);
+  addParam(card, 'Clip skip', take('clipstopatlayer'));
+  addParam(card, 'Init creativity', take('initimagecreativity'));
+  const refinerUpscale = take('refinerupscale');
+  if (refinerUpscale) {
+    const method = take('refinerupscalemethod');
+    addParam(card, 'Refiner upscale', method || `× ${refinerUpscale}`, method ? `× ${refinerUpscale}` : null);
+    addParam(card, 'Refiner control', take('refinercontrolpercentage'));
+    addParam(card, 'Refiner method', take('refinermethod'));
+  }
+  addParam(card, 'Batch', take('batchsize'));
+  take('swarm_version'); // version is already in the card header
+
+  if (modelName) card.models.push({ role: 'checkpoint', name: modelName, hash: hashes[stripExt(modelName)] || null, weight: null });
+
+  const refinerModel = take('refinermodel');
+  if (refinerModel) card.models.push({ role: 'refiner', name: refinerModel, hash: hashes[stripExt(refinerModel)] || null, weight: null });
+
+  const vae = take('vae');
+  if (vae) card.models.push({ role: 'vae', name: vae, hash: hashes[stripExt(vae)] || null, weight: null });
+  else if (take('automaticvae')) addExtra(card, 'vae', 'automatic');
+
+  // LoRA: comma-separated strings or arrays, weights as a parallel list.
+  const loras = toList(take('loras'));
+  const weights = toList(take('loraweights'));
+  loras.forEach((name, i) => {
+    card.models.push({ role: 'lora', name, hash: hashes[stripExt(name)] || null, weight: weights[i] != null ? String(weights[i]) : null });
+  });
+
+  const wildcards = takeExtra('used_wildcards');
+  if (wildcards) addExtra(card, 'used_wildcards', Array.isArray(wildcards) ? wildcards.join(', ') : wildcards);
+
+  // Internal generation timings are of no use in the card, they stay in the raw JSON.
+  for (const k of ['prep_time', 'generation_time', 'intermediate']) delete extraData[k];
+  for (const [k, v] of Object.entries(p)) addExtra(card, k, v);
+  for (const [k, v] of Object.entries(extraData)) addExtra(card, k, v);
+  return card;
+
+  function stripExt(name) {
+    return String(name).replace(/\.(safetensors|ckpt|pt|pth|bin|gguf)$/i, '');
+  }
+  function toList(v) {
+    if (v == null || v === '') return [];
+    if (Array.isArray(v)) return v;
+    return String(v).split(',').map(s => s.trim()).filter(Boolean);
+  }
+});
+
+// ---- src/js/62-parse-comfyui.js ----
+// ComfyUI: prompt = API graph { id: { class_type, inputs, _meta } }.
+// If there is no prompt, the workflow UI graph is converted to the same shape (see 64-comfy-workflow.js).
+// The strategy is structural, with no list of node types: a sampler is a node with
+// positive and negative inputs (or guider for SamplerCustomAdvanced); text is found
+// by following links from those inputs, model and LoRA via the model chain.
+App.parsers.register('comfyui', (record) => {
+  const { emptyCard } = App.parsers;
+  const card = emptyCard();
+  const promptEntry = record.entries.find(e => e.key === 'prompt');
+  const workflowEntry = record.entries.find(e => e.key === 'workflow');
+
+  let graph = null;
+  let executed = null;
+  let status = null;
+  let notes = [];
+
+  if (promptEntry && promptEntry.json) {
+    graph = promptEntry.json;
+    executed = new Set(Object.keys(graph));
+  } else if (workflowEntry && workflowEntry.json && Array.isArray(workflowEntry.json.nodes)) {
+    const converted = App.comfyWorkflow.convert(workflowEntry.json);
+    graph = converted.graph;
+    executed = App.comfyWorkflow.executedSet(graph);
+    status = converted.status;
+    notes = converted.notes;
+    card.notes.push('No API graph (prompt) in the file, values are reconstructed from the UI workflow: widget names for custom nodes are guessed.');
+  } else {
+    card.notes.push('Neither prompt nor workflow JSON is readable.');
+    return card;
+  }
+
+  const analysis = App.parsers.analyzeComfyGraph(graph);
+  card.notes.push(...analysis.notes);
+
+  // Text nodes: those used in generation, then unconnected ones, then canvas notes.
+  const used = analysis.textNodes.filter(t => t.used).map(t => ({ ...t, kind: 'used' }));
+  const unused = analysis.textNodes.filter(t => !t.used).map(t => ({ ...t, kind: 'unused' }));
+  card.textNodes = [...used, ...unused, ...notes];
+
+  if (analysis.passes.length === 0) {
+    card.notes.push('No sampler node found in the graph, showing text nodes only.');
+  } else {
+    const main = analysis.passes[0];
+    card.positive.text = main.positive;
+    card.negative.text = main.negative;
+    card.params = main.params.slice();
+    if (analysis.passes.length > 1) card.passes = analysis.passes;
+  }
+
+  card.models = analysis.models;
+  const checkpoint = analysis.models.find(m => m.role === 'checkpoint');
+  if (checkpoint) card.params.unshift({ label: 'Model', value: checkpoint.name, sub: checkpoint.detail || null });
+
+  // What on the canvas was actually executed: the workflow tree needs it for markers.
+  card.executed = executed;
+  card.nodeStatus = status;
+  return card;
+});
+
+// Graph analysis is split out so tree highlighting and check.html can use it too.
+App.parsers.analyzeComfyGraph = function analyzeComfyGraph(graph) {
+  const TEXT_FIELDS = ['text', 'prompt', 'text_g', 'text_l', 'string', 'positive', 'negative', 'wildcard_text', 'populated_text', 'clip_l', 't5xxl', 'value'];
+  // Do not walk up through these inputs: they lead to loaders and images, not text.
+  const STOP_FIELDS = new Set(['clip', 'clip1', 'clip2', 'model', 'model1', 'model2', 'vae', 'latent', 'latent_image', 'samples', 'image', 'images', 'pixels', 'mask', 'upscale_model', 'control_net', 'style_model', 'clip_vision', 'clip_vision_output', 'sampler', 'sigmas', 'noise', 'guider']);
+  const CONTROL_FIELDS = new Set(['sampler', 'sigmas', 'noise', 'guider', 'scheduler']);
+  const CLIP_FIELDS = ['clip', 'clip1', 'clip2'];
+
+  const notes = [];
+  const node = id => graph[String(id)];
+  const isLink = v => Array.isArray(v) && v.length === 2 && (typeof v[0] === 'string' || typeof v[0] === 'number');
+  const title = n => (n && n._meta && n._meta.title) || null;
+
+  // Scalar input value: either stored on the node or linked from a primitive.
+  function scalar(n, key) {
+    if (!n || !n.inputs || !(key in n.inputs)) return null;
+    const v = n.inputs[key];
+    if (!isLink(v)) return v;
+    const src = node(v[0]);
+    if (!src || !src.inputs) return null;
+    for (const k of ['value', key, 'string', 'text', 'int', 'float', 'number']) {
+      if (k in src.inputs && !isLink(src.inputs[k])) return src.inputs[k];
+    }
+    const firstScalar = Object.values(src.inputs).find(x => !isLink(x) && x !== null && typeof x !== 'object');
+    return firstScalar === undefined ? null : firstScalar;
+  }
+
+  // All text nodes for the tabs; used is set while walking from the samplers.
+  const textNodes = [];
+  const textNodeIds = new Set();
+  for (const [id, n] of Object.entries(graph)) {
+    if (!n || !n.inputs) continue;
+    for (const field of TEXT_FIELDS) {
+      const v = n.inputs[field];
+      if (typeof v === 'string' && v.trim() !== '') {
+        textNodes.push({ id, classType: n.class_type, title: title(n), field, text: v, used: false });
+        textNodeIds.add(id);
+      }
+    }
+  }
+  const markUsed = id => { for (const t of textNodes) if (t.id === String(id)) t.used = true; };
+
+  // Text upstream of a node. For nodes with paired positive/negative inputs
+  // (ControlNetApplyAdvanced and the like) follow only the branch whose output
+  // we arrived through: slot 0 is positive, slot 1 is negative.
+  function collectText(startId, startSlot, controlnets) {
+    const found = [];
+    const visited = new Set();
+    const walk = (id, slot, depth) => {
+      const key = String(id);
+      if (visited.has(key) || depth > 24) return;
+      visited.add(key);
+      const n = node(key);
+      if (!n || !n.inputs) return;
+      const inp = n.inputs;
+      const own = [];
+      for (const field of TEXT_FIELDS) {
+        const v = inp[field];
+        if (typeof v === 'string' && v.trim() !== '') own.push({ field, text: v });
+      }
+      if (own.length) markUsed(key);
+      if (own.length === 2 && own[0].field === 'text_g' && own[1].field === 'text_l' && own[0].text === own[1].text) own.pop();
+      for (const o of own) found.push(o.field === 'text_l' || o.field === 'text_g' ? `[${o.field}] ${o.text}` : o.text);
+
+      if (controlnets && isLink(inp.control_net)) {
+        const loader = node(inp.control_net[0]);
+        const name = loader && loader.inputs && (loader.inputs.control_net_name || loader.inputs.model_name);
+        if (name) controlnets.push({ role: 'controlnet', name: String(name), hash: null, weight: inp.strength != null ? String(inp.strength) : null });
+      }
+
+      const paired = isLink(inp.positive) && isLink(inp.negative);
+      for (const [field, v] of Object.entries(inp)) {
+        if (!isLink(v) || STOP_FIELDS.has(field)) continue;
+        if (paired && (field === 'positive' || field === 'negative')) {
+          const want = slot === 1 ? 'negative' : 'positive';
+          if (field !== want) continue;
+        }
+        walk(v[0], v[1], depth + 1);
+      }
+    };
+    walk(startId, startSlot, 0);
+    return found.join('\n');
+  }
+
+  // Parameter lookup: on the node itself, then upstream via control inputs (sampler, sigmas, noise, guider).
+  function findParam(startId, keys) {
+    const visited = new Set();
+    const queue = [String(startId)];
+    while (queue.length) {
+      const id = queue.shift();
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const n = node(id);
+      if (!n || !n.inputs) continue;
+      for (const k of keys) {
+        if (k in n.inputs) {
+          const v = scalar(n, k);
+          if (v !== null && v !== undefined) return v;
+        }
+      }
+      for (const [field, v] of Object.entries(n.inputs)) {
+        if (isLink(v) && CONTROL_FIELDS.has(field)) queue.push(String(v[0]));
+      }
+    }
+    return null;
+  }
+
+  // Upstream lookup over an arbitrary set of fields, for clip skip via the clip chain.
+  function findUp(startId, fields, key, depth = 0, visited = new Set()) {
+    const id = String(startId);
+    if (visited.has(id) || depth > 32) return null;
+    visited.add(id);
+    const n = node(id);
+    if (!n || !n.inputs) return null;
+    if (key in n.inputs && !isLink(n.inputs[key])) return n.inputs[key];
+    for (const f of fields) {
+      if (isLink(n.inputs[f])) {
+        const r = findUp(n.inputs[f][0], fields, key, depth + 1, visited);
+        if (r !== null) return r;
+      }
+    }
+    return null;
+  }
+
+  // Model chain: LoRAs along the way, checkpoint or UNET at the end, merges expanded recursively.
+  function modelChain(startId, depth = 0) {
+    const loras = [];
+    let checkpoint = null;
+    const visited = new Set();
+    let id = startId != null ? String(startId) : null;
+    while (id && !visited.has(id) && depth < 8) {
+      visited.add(id);
+      const n = node(id);
+      if (!n || !n.inputs) break;
+      const inp = n.inputs;
+      if (typeof inp.lora_name === 'string') {
+        loras.push({ role: 'lora', name: inp.lora_name, hash: null, weight: inp.strength_model != null ? String(inp.strength_model) : null });
+      }
+      const ckpt = inp.ckpt_name || inp.unet_name;
+      if (typeof ckpt === 'string') { checkpoint = { role: 'checkpoint', name: ckpt, hash: null, weight: null }; break; }
+      if (isLink(inp.model1) && isLink(inp.model2)) {
+        const a = modelChain(inp.model1[0], depth + 1);
+        const b = modelChain(inp.model2[0], depth + 1);
+        loras.push(...a.loras, ...b.loras);
+        checkpoint = {
+          role: 'checkpoint',
+          name: `${a.checkpoint ? a.checkpoint.name : '?'} + ${b.checkpoint ? b.checkpoint.name : '?'}`,
+          hash: null, weight: null,
+          detail: inp.ratio != null ? `merge @ ${inp.ratio}` : 'merge',
+        };
+        break;
+      }
+      const next = isLink(inp.model) ? inp.model : (isLink(inp.unet) ? inp.unet : null);
+      id = next ? String(next[0]) : null;
+    }
+    return { loras, checkpoint };
+  }
+
+  // Latent size: EmptyLatentImage, upscale by factor, or the image feeding VAEEncode.
+  function latentInfo(startId) {
+    const visited = new Set();
+    let id = startId != null ? String(startId) : null;
+    while (id && !visited.has(id) && visited.size < 32) {
+      visited.add(id);
+      const n = node(id);
+      if (!n || !n.inputs) break;
+      const inp = n.inputs;
+      const w = scalar(n, 'width'), h = scalar(n, 'height');
+      if (typeof w === 'number' && typeof h === 'number') return { size: `${w} × ${h}`, sub: null, source: n.class_type };
+      if (inp.scale_by != null && !isLink(inp.scale_by)) return { size: inp.upscale_method || 'upscale', sub: `× ${inp.scale_by}`, source: n.class_type };
+      if (typeof inp.image === 'string') return { size: null, source: `image: ${inp.image}` };
+      const next = ['latent_image', 'samples', 'latent', 'pixels', 'image', 'images'].map(f => inp[f]).find(isLink);
+      id = next ? String(next[0]) : null;
+    }
+    return { size: null, sub: null, source: null };
+  }
+
+  // Samplers: positive+negative directly on the node, or via a guider.
+  const samplers = [];
+  for (const [id, n] of Object.entries(graph)) {
+    if (!n || !n.inputs) continue;
+    const inp = n.inputs;
+    if (isLink(inp.positive) && isLink(inp.negative) && (isLink(inp.model) || isLink(inp.latent_image))) {
+      samplers.push({ id, n, condNode: n });
+    } else if (isLink(inp.guider) && isLink(inp.latent_image)) {
+      const g = node(inp.guider[0]);
+      samplers.push({ id, n, condNode: g && g.inputs ? g : null });
+    }
+  }
+
+  const passes = samplers.map(({ id, n, condNode }) => {
+    const inp = n.inputs;
+    const cond = condNode ? condNode.inputs : {};
+    const controlnets = [];
+    const posLink = isLink(cond.positive) ? cond.positive : (isLink(cond.conditioning) ? cond.conditioning : null);
+    const positive = posLink ? collectText(posLink[0], posLink[1], controlnets) : '';
+    const negative = isLink(cond.negative) ? collectText(cond.negative[0], cond.negative[1], null) : '';
+    const startStep = inp.start_at_step != null ? Number(scalar(n, 'start_at_step')) : 0;
+    const modelLink = isLink(inp.model) ? inp.model[0] : (isLink(cond.model) ? cond.model[0] : null);
+    const chain = modelChain(modelLink);
+    const latent = latentInfo(isLink(inp.latent_image) ? inp.latent_image[0] : null);
+    const clipSkip = posLink ? findUp(posLink[0], CLIP_FIELDS.concat(['positive', 'conditioning']), 'stop_at_clip_layer') : null;
+
+    const params = [];
+    // Numbers from JSON can look like 0.7000000000000001; round them for the card.
+    const fmt = v => typeof v === 'number' ? String(Number(v.toFixed(4))) : String(v);
+    const push = (label, value, sub) => { if (value !== null && value !== undefined && value !== '') params.push({ label, value: fmt(value), sub: sub == null ? null : String(sub) }); };
+    push('Seed', findParam(id, ['seed', 'noise_seed']));
+    push('Steps', findParam(id, ['steps']));
+    push('CFG', findParam(id, ['cfg']));
+    push('Sampler', findParam(id, ['sampler_name']));
+    push('Scheduler', findParam(id, ['scheduler']));
+    push('Denoise', findParam(id, ['denoise']));
+    push('Size', latent.size, latent.sub);
+    if (latent.source && !latent.size) push('Latent from', latent.source);
+    push('Clip skip', clipSkip);
+    // Show the step range only when it is actually truncated (refiner, hires).
+    const endRaw = scalar(n, 'end_at_step');
+    const totalSteps = Number(findParam(id, ['steps']));
+    const endStep = endRaw != null && Number(endRaw) < 10000 && !(totalSteps && Number(endRaw) >= totalSteps) ? Number(endRaw) : null;
+    if (startStep > 0 || endStep !== null) push('Step range', `${startStep} → ${endStep === null ? 'end' : endStep}`);
+
+    return {
+      id,
+      label: `${title(n) && title(n) !== n.class_type ? title(n) : n.class_type} #${id}`,
+      positive,
+      negative,
+      params,
+      models: [chain.checkpoint, ...chain.loras, ...controlnets].filter(Boolean),
+      startStep,
+      fromEmptyLatent: latent.source ? /Empty/i.test(latent.source) : false,
+    };
+  });
+
+  // Main pass: starts from an empty latent and step zero; refiner and hires come later.
+  passes.sort((a, b) => (b.fromEmptyLatent - a.fromEmptyLatent) || (a.startStep - b.startStep) || (Number(a.id) - Number(b.id)));
+
+  // Models: merged across passes without duplicates; VAE and upscalers searched over the whole graph.
+  const models = [];
+  const seen = new Set();
+  const addModel = m => {
+    const k = `${m.role}:${m.name}:${m.weight}`;
+    if (!seen.has(k)) { seen.add(k); models.push(m); }
+  };
+  for (const p of passes) for (const m of p.models) addModel(m);
+  for (const n of Object.values(graph)) {
+    if (!n || !n.inputs) continue;
+    if (typeof n.inputs.vae_name === 'string') addModel({ role: 'vae', name: n.inputs.vae_name, hash: null, weight: null });
+    if (typeof n.inputs.model_name === 'string' && /upscale/i.test(n.class_type || '')) addModel({ role: 'upscaler', name: n.inputs.model_name, hash: null, weight: null });
+  }
+
+  return { passes, textNodes, models, notes };
+};
+
+// ---- src/js/63-parse-invokeai.js ----
+// InvokeAI: invokeai_metadata (current JSON), sd-metadata and Dream (older versions).
+// Written from documentation and reference code, no real sample was available:
+// verified only on synthetic fixtures.
+App.parsers.register('invokeai', (record) => {
+  const { emptyCard, addParam, addExtra } = App.parsers;
+  const card = emptyCard();
+  const entry = record.entries.find(e => e.key === 'invokeai_metadata');
+  if (!entry || !entry.json) {
+    card.notes.push('invokeai_metadata is missing or not JSON, only graph/workflow are present.');
+    return card;
+  }
+  const m = Object.assign({}, entry.json);
+  const take = (key) => { if (!(key in m)) return null; const v = m[key]; delete m[key]; return v; };
+  const name = obj => (obj && typeof obj === 'object') ? (obj.name || obj.model_name || obj.key || null) : (obj == null ? null : String(obj));
+
+  card.positive.text = String(take('positive_prompt') || '');
+  card.negative.text = String(take('negative_prompt') || '');
+  const styleP = take('positive_style_prompt');
+  const styleN = take('negative_style_prompt');
+  if (styleP && styleP !== card.positive.text) addExtra(card, 'positive_style_prompt', styleP);
+  if (styleN && styleN !== card.negative.text) addExtra(card, 'negative_style_prompt', styleN);
+
+  const model = take('model');
+  const width = take('width');
+  const height = take('height');
+
+  addParam(card, 'Model', name(model));
+  addParam(card, 'Seed', take('seed'));
+  addParam(card, 'Steps', take('steps'));
+  addParam(card, 'CFG', take('cfg_scale'));
+  addParam(card, 'CFG rescale', take('cfg_rescale_multiplier'));
+  addParam(card, 'Scheduler', take('scheduler'));
+  addParam(card, 'Size', width && height ? `${width} × ${height}` : null);
+  addParam(card, 'Clip skip', take('clip_skip'));
+  addParam(card, 'Denoise', take('strength'));
+  addParam(card, 'Mode', take('generation_mode'));
+  addParam(card, 'Version', take('app_version'));
+
+  if (model) card.models.push({ role: 'checkpoint', name: name(model), hash: model.hash || null, weight: null });
+  const vae = take('vae');
+  if (vae) card.models.push({ role: 'vae', name: name(vae), hash: vae.hash || null, weight: null });
+  const refiner = take('refiner_model');
+  if (refiner) card.models.push({ role: 'refiner', name: name(refiner), hash: refiner.hash || null, weight: null });
+  const loras = take('loras');
+  if (Array.isArray(loras)) {
+    for (const l of loras) {
+      const lm = l && (l.model || l.lora || l);
+      card.models.push({ role: 'lora', name: name(lm), hash: (lm && lm.hash) || null, weight: l && l.weight != null ? String(l.weight) : null });
+    }
+  }
+
+  for (const [k, v] of Object.entries(m)) addExtra(card, k, v);
+  return card;
+});
+
+App.parsers.register('invokeai-legacy', (record) => {
+  const { emptyCard, addParam, addExtra } = App.parsers;
+  const card = emptyCard();
+  const sd = record.entries.find(e => e.key === 'sd-metadata');
+  const dream = record.entries.find(e => e.key === 'Dream');
+
+  if (sd && sd.json) {
+    const j = sd.json;
+    const img = Object.assign({}, j.image || {});
+    const take = (key) => { if (!(key in img)) return null; const v = img[key]; delete img[key]; return v; };
+    const prompt = take('prompt');
+    if (Array.isArray(prompt)) {
+      card.positive.text = prompt.map(p => (p && typeof p === 'object') ? p.prompt : String(p)).filter(Boolean).join('\n');
+    } else if (prompt != null) {
+      card.positive.text = String(prompt);
+    }
+    // Old InvokeAI kept the negative in square brackets inside the prompt.
+    const neg = [...card.positive.text.matchAll(/\[([^\]]+)\]/g)].map(m => m[1]);
+    if (neg.length) card.negative.text = neg.join(', ');
+
+    addParam(card, 'Model', j.model_weights || j.model);
+    addParam(card, 'Seed', take('seed'));
+    addParam(card, 'Steps', take('steps'));
+    addParam(card, 'CFG', take('cfg_scale'));
+    addParam(card, 'Sampler', take('sampler'));
+    const w = take('width'), h = take('height');
+    addParam(card, 'Size', w && h ? `${w} × ${h}` : null);
+    addParam(card, 'Version', j.app_version);
+    if (j.model_weights || j.model) card.models.push({ role: 'checkpoint', name: j.model_weights || j.model, hash: j.model_hash || null, weight: null });
+    for (const [k, v] of Object.entries(img)) addExtra(card, k, v);
+    for (const k of ['app_id', 'model', 'model_hash']) if (k in j) addExtra(card, k, j[k]);
+    return card;
+  }
+
+  if (dream) {
+    // "prompt text" -s 50 -S 12345 -W 512 -H 512 -C 7.5 -A k_lms
+    const m = /^"([\s\S]*?)"\s*(.*)$/.exec(dream.value.trim());
+    if (m) {
+      card.positive.text = m[1];
+      const flags = {};
+      for (const f of m[2].matchAll(/-(\w)\s+(\S+)/g)) flags[f[1]] = f[2];
+      addParam(card, 'Seed', flags.S);
+      addParam(card, 'Steps', flags.s);
+      addParam(card, 'CFG', flags.C);
+      addParam(card, 'Sampler', flags.A);
+      addParam(card, 'Size', flags.W && flags.H ? `${flags.W} × ${flags.H}` : null);
+      for (const [k, v] of Object.entries(flags)) if (!'SsCAWH'.includes(k)) addExtra(card, `-${k}`, v);
+    } else {
+      card.positive.text = dream.value;
+    }
+  }
+  return card;
+});
+
+// ---- src/js/64-comfy-workflow.js ----
+// Converts a ComfyUI UI graph (workflow: nodes[], links[], widgets_values) into an API-like
+// graph { id: { class_type, inputs, _meta } } that analyzeComfyGraph understands.
+//
+// Rules:
+//   - muted (mode 2) nodes are dropped and links through them are cut;
+//   - bypassed (mode 4) nodes pass an input through to the output of matching type; the link
+//     is redirected to their source; they themselves do not enter the graph;
+//   - Note and MarkdownNote do not enter the graph and are returned separately;
+//   - widget values are named from a table for known types, heuristically for the rest,
+//     and a link into an input always takes precedence over the widget value.
+App.comfyWorkflow = (() => {
+  const MODE_MUTED = 2;
+  const MODE_BYPASS = 4;
+  const NOTE_TYPES = new Set(['Note', 'MarkdownNote']);
+
+  // widgets_values order for standard nodes.
+  const WIDGETS = {
+    KSampler: ['seed', 'control_after_generate', 'steps', 'cfg', 'sampler_name', 'scheduler', 'denoise'],
+    KSamplerAdvanced: ['add_noise', 'noise_seed', 'control_after_generate', 'steps', 'cfg', 'sampler_name', 'scheduler', 'start_at_step', 'end_at_step', 'return_with_leftover_noise'],
+    SamplerCustom: ['add_noise', 'noise_seed', 'control_after_generate', 'cfg'],
+    SamplerCustomAdvanced: [],
+    RandomNoise: ['noise_seed', 'control_after_generate'],
+    KSamplerSelect: ['sampler_name'],
+    BasicScheduler: ['scheduler', 'steps', 'denoise'],
+    BasicGuider: [],
+    CFGGuider: ['cfg'],
+    CLIPTextEncode: ['text'],
+    CLIPTextEncodeSDXL: ['width', 'height', 'crop_w', 'crop_h', 'target_width', 'target_height', 'text_g', 'text_l'],
+    CLIPTextEncodeSDXLRefiner: ['ascore', 'width', 'height', 'text'],
+    CheckpointLoaderSimple: ['ckpt_name'],
+    CheckpointLoader: ['config_name', 'ckpt_name'],
+    UNETLoader: ['unet_name', 'weight_dtype'],
+    LoraLoader: ['lora_name', 'strength_model', 'strength_clip'],
+    LoraLoaderModelOnly: ['lora_name', 'strength_model'],
+    VAELoader: ['vae_name'],
+    CLIPLoader: ['clip_name', 'type'],
+    DualCLIPLoader: ['clip_name1', 'clip_name2', 'type'],
+    CLIPSetLastLayer: ['stop_at_clip_layer'],
+    EmptyLatentImage: ['width', 'height', 'batch_size'],
+    EmptySD3LatentImage: ['width', 'height', 'batch_size'],
+    LatentUpscale: ['upscale_method', 'width', 'height', 'crop'],
+    LatentUpscaleBy: ['upscale_method', 'scale_by'],
+    ImageScale: ['upscale_method', 'width', 'height', 'crop'],
+    ImageScaleBy: ['upscale_method', 'scale_by'],
+    UpscaleModelLoader: ['model_name'],
+    ImageUpscaleWithModel: [],
+    ControlNetLoader: ['control_net_name'],
+    ControlNetApply: ['strength'],
+    ControlNetApplyAdvanced: ['strength', 'start_percent', 'end_percent'],
+    ModelMergeSimple: ['ratio'],
+    CLIPMergeSimple: ['ratio'],
+    ModelSamplingDiscrete: ['sampling', 'zsnr'],
+    ModelSamplingFlux: ['max_shift', 'base_shift', 'width', 'height'],
+    FluxGuidance: ['guidance'],
+    LoadImage: ['image', 'upload'],
+    SaveImage: ['filename_prefix'],
+    PreviewImage: [],
+    VAEDecode: [],
+    VAEEncode: [],
+    PrimitiveNode: ['value', 'control_after_generate'],
+    PrimitiveString: ['value'],
+    PrimitiveStringMultiline: ['value'],
+    PrimitiveInt: ['value', 'control_after_generate'],
+    PrimitiveFloat: ['value'],
+    StringConstant: ['string'],
+    StringConstantMultiline: ['string', 'strip_newlines'],
+  };
+
+  const SAMPLERS = /^(euler|euler_ancestral|euler_cfg_pp|heun|heunpp2|dpm_2|dpm_2_ancestral|lms|dpm_fast|dpm_adaptive|dpmpp_2s_ancestral|dpmpp_sde|dpmpp_sde_gpu|dpmpp_2m|dpmpp_2m_sde|dpmpp_2m_sde_gpu|dpmpp_3m_sde|dpmpp_3m_sde_gpu|ddpm|lcm|ddim|uni_pc|uni_pc_bh2|res_multistep|ipndm|deis|er_sde|seeds_2|gradient_estimation)/;
+  const SCHEDULERS = new Set(['normal', 'karras', 'exponential', 'sgm_uniform', 'simple', 'ddim_uniform', 'beta', 'linear_quadratic', 'kl_optimal', 'ays', 'gits']);
+
+  // For an unknown node type, assign names based on the values' contents.
+  function guessWidgetNames(node, values) {
+    const outputsString = (node.outputs || []).some(o => o && /STRING|CONDITIONING/i.test(String(o.type)));
+    const textual = outputsString || /text|prompt|string|note|wildcard/i.test(node.type);
+    const names = [];
+    let textGiven = false;
+    values.forEach((v, i) => {
+      if (typeof v === 'string' && !textGiven && textual && v.trim() !== '' && !SAMPLERS.test(v) && !SCHEDULERS.has(v)) {
+        names.push('text');
+        textGiven = true;
+      } else if (typeof v === 'string' && SAMPLERS.test(v)) {
+        names.push('sampler_name');
+      } else if (typeof v === 'string' && SCHEDULERS.has(v)) {
+        names.push('scheduler');
+      } else if (typeof v === 'number' && Number.isInteger(v) && v > 1e9) {
+        names.push('seed');
+      } else {
+        names.push(`widget_${i}`);
+      }
+    });
+    return names;
+  }
+
+  function convert(workflow) {
+    const nodes = Array.isArray(workflow.nodes) ? workflow.nodes : [];
+    const rawLinks = Array.isArray(workflow.links) ? workflow.links : [];
+    const byId = new Map(nodes.map(n => [String(n.id), n]));
+
+    // links: [id, srcNode, srcSlot, dstNode, dstSlot, type] or objects in newer versions.
+    const links = new Map();
+    for (const l of rawLinks) {
+      if (Array.isArray(l)) links.set(l[0], { src: String(l[1]), srcSlot: l[2], dst: String(l[3]), dstSlot: l[4], type: l[5] });
+      else if (l && typeof l === 'object') links.set(l.id, { src: String(l.origin_id), srcSlot: l.origin_slot, dst: String(l.target_id), dstSlot: l.target_slot, type: l.type });
+    }
+
+    // Link source accounting for bypass: a bypassed node yields the input of the same type as the output.
+    function resolve(linkId, depth = 0) {
+      const link = links.get(linkId);
+      if (!link || depth > 64) return null;
+      const src = byId.get(link.src);
+      if (!src || src.mode === MODE_MUTED) return null;
+      if (src.mode === MODE_BYPASS) {
+        const out = (src.outputs || [])[link.srcSlot];
+        const wantType = out ? out.type : link.type;
+        const inputs = src.inputs || [];
+        let candidate = inputs.find(i => i && i.link != null && i.type === wantType);
+        if (!candidate) candidate = inputs.find(i => i && i.link != null && String(i.type).toUpperCase() === String(wantType).toUpperCase());
+        if (!candidate) candidate = inputs.find(i => i && i.link != null);
+        return candidate ? resolve(candidate.link, depth + 1) : null;
+      }
+      return [link.src, link.srcSlot];
+    }
+
+    const graph = {};
+    const notes = [];
+    const status = {}; // id -> 'muted' | 'bypassed' | 'note' | 'active'
+
+    for (const n of nodes) {
+      const id = String(n.id);
+      if (NOTE_TYPES.has(n.type)) {
+        status[id] = 'note';
+        const text = Array.isArray(n.widgets_values) ? n.widgets_values.find(v => typeof v === 'string') : null;
+        notes.push({ id, classType: n.type, title: n.title || null, field: 'note', text: text || '', kind: 'note' });
+        continue;
+      }
+      if (n.mode === MODE_MUTED) { status[id] = 'muted'; continue; }
+      if (n.mode === MODE_BYPASS) { status[id] = 'bypassed'; continue; }
+      status[id] = 'active';
+
+      const inputs = {};
+      const values = Array.isArray(n.widgets_values) ? n.widgets_values
+        : (n.widgets_values && typeof n.widgets_values === 'object' ? Object.values(n.widgets_values) : []);
+      const names = WIDGETS[n.type] || guessWidgetNames(n, values);
+      values.forEach((v, i) => {
+        const name = names[i] || `widget_${i}`;
+        if (name === 'control_after_generate') return;
+        if (v !== null && typeof v !== 'object') inputs[name] = v;
+      });
+
+      for (const inp of n.inputs || []) {
+        if (!inp || inp.link == null) continue;
+        const source = resolve(inp.link);
+        const name = inp.name || (inp.widget && inp.widget.name);
+        if (!name) continue;
+        if (source) inputs[name] = source;
+        else if (inp.widget) { /* widget converted to an input whose source is gone: keep the widget value */ }
+        else delete inputs[name];
+      }
+
+      graph[id] = { class_type: n.type, inputs, _meta: { title: n.title || null } };
+    }
+
+    return { graph, notes, status };
+  }
+
+  // Nodes ComfyUI would actually execute: terminal active nodes and everything upstream of them.
+  function executedSet(graph) {
+    const consumed = new Set();
+    for (const n of Object.values(graph)) {
+      for (const v of Object.values(n.inputs)) if (Array.isArray(v) && v.length === 2) consumed.add(String(v[0]));
+    }
+    const executed = new Set();
+    const stack = Object.keys(graph).filter(id => !consumed.has(id));
+    while (stack.length) {
+      const id = stack.pop();
+      if (executed.has(id)) continue;
+      executed.add(id);
+      const n = graph[id];
+      if (!n) continue;
+      for (const v of Object.values(n.inputs)) if (Array.isArray(v) && v.length === 2) stack.push(String(v[0]));
+    }
+    return executed;
+  }
+
+  return { convert, executedSet };
+})();
+
+// ---- src/js/70-card.js ----
+// Renders the generation card: prompts, parameters, models, other nodes.
+App.card = (() => {
+  const { h, clear, copyText } = App.util;
+
+  // The "Final / Original" toggles and pass selection live inside the card,
+  // so it can re-render itself.
+  function render(record) {
+    const card = record.card;
+    const root = h('div', { class: 'card' });
+    const view = { pass: 0, original: { positive: false, negative: false } };
+
+    const draw = () => {
+      clear(root);
+      const pass = card.passes ? card.passes[view.pass] : null;
+      // Pass prompt objects are created once and kept on the pass itself,
+      // otherwise editor changes would be lost on every re-render.
+      if (pass && !pass.prompts) pass.prompts = { positive: { text: pass.positive, original: null }, negative: { text: pass.negative, original: null } };
+      const positive = pass ? pass.prompts.positive : card.positive;
+      const negative = pass ? pass.prompts.negative : card.negative;
+      const params = pass ? withModel(pass.params, card) : card.params;
+
+      if (card.passes) root.append(passSwitcher(card.passes, view, draw));
+      root.append(promptBlock('Prompt', positive, 'positive', view, draw));
+      root.append(promptBlock('Negative', negative, 'negative', view, draw));
+
+      // Parameters and Models in two columns on wide screens, stacked on narrow ones.
+      const left = (params.length || card.extra.length) ? h('div', { class: 'split-col' },
+        h('div', { class: 'block-title' }, 'Parameters'),
+        params.length ? paramGrid(params) : null,
+        card.extra.length ? extraTable(card.extra) : null) : null;
+      const right = card.models.length ? h('div', { class: 'split-col' },
+        h('div', { class: 'block-title' }, 'Models'),
+        modelList(card.models)) : null;
+      if (left || right) root.append(h('div', { class: `split${left && right ? '' : ' split-single'}` }, left, right));
+      if (card.textNodes && card.textNodes.length) {
+        root.append(h('div', { class: 'block-title' }, 'Other nodes'));
+        root.append(nodeGroups(card.textNodes));
+      }
+    };
+    draw();
+    return root;
+  }
+
+  function withModel(params, card) {
+    const checkpoint = card.models.find(m => m.role === 'checkpoint');
+    return checkpoint ? [{ label: 'Model', value: checkpoint.name, sub: checkpoint.detail || null }, ...params] : params;
+  }
+
+  function passSwitcher(passes, view, redraw) {
+    return h('div', { class: 'seg' },
+      h('span', { class: 'seg-label' }, 'Sampler pass'),
+      passes.map((p, i) => h('button', {
+        class: `seg-btn${i === view.pass ? ' active' : ''}`,
+        onClick: () => { view.pass = i; redraw(); },
+      }, p.label)));
+  }
+
+  function promptBlock(label, prompt, kind, view, redraw) {
+    const hasOriginal = prompt.original != null;
+    const showOriginal = hasOriginal && view.original[kind];
+    const field = showOriginal ? 'original' : 'text';
+
+    const toggle = hasOriginal ? h('div', { class: 'seg seg-inline' },
+      h('button', { class: `seg-btn${!showOriginal ? ' active' : ''}`, onClick: () => { view.original[kind] = false; redraw(); } }, 'Final'),
+      h('button', { class: `seg-btn${showOriginal ? ' active' : ''}`, onClick: () => { view.original[kind] = true; redraw(); } }, 'Original')) : null;
+
+    // Edits live in the prompt object until the page reloads; the original is kept
+    // alongside so the Reset button can restore it.
+    const pristine = prompt.pristine || (prompt.pristine = { text: prompt.text, original: prompt.original });
+    const edited = () => prompt[field] !== pristine[field];
+
+    const editedTag = h('span', { class: 'edited-tag', hidden: !edited() }, 'edited');
+    const resetBtn = h('button', { class: 'btn btn-sm', title: 'Discard edits', hidden: !edited(),
+      onClick: () => { prompt[field] = pristine[field]; redraw(); } }, App.icons.svg('x'), 'Reset');
+    const copyBtn = h('button', { class: 'btn btn-sm', onClick: e => App.ui.flash(e.currentTarget, copyText(prompt[field])) }, App.icons.svg('copy'), 'Copy');
+    // Text is read-only by default; the editor is enabled by a button and remembers its state.
+    const editBtn = h('button', { class: `btn btn-sm${prompt.editing ? ' active' : ''}`, title: prompt.editing ? 'Finish editing' : 'Edit text',
+      onClick: () => { prompt.editing = !prompt.editing; redraw(); } }, App.icons.svg(prompt.editing ? 'check' : 'pencil'), prompt.editing ? 'Done' : 'Edit');
+
+    const body = prompt.editing
+      ? promptEditor(prompt, field, () => { editedTag.hidden = !edited(); resetBtn.hidden = !edited(); })
+      : (prompt[field] ? promptText(prompt[field]) : h('div', { class: 'prompt-empty' }, '(empty)'));
+
+    return h('div', { class: `prompt-block prompt-${kind}${prompt.editing ? ' editing' : ''}` },
+      h('div', { class: 'prompt-head' },
+        h('span', { class: 'prompt-label' }, label),
+        toggle,
+        editedTag,
+        h('span', { class: 'spacer' }),
+        resetBtn,
+        editBtn,
+        copyBtn),
+      body);
+  }
+
+  // Editor: a colorized <pre> sets the height and draws the highlighting; on top of it
+  // sits a transparent textarea with the same font and padding. Cursor and selection
+  // come from the textarea, colors from the pre; the pre is redrawn on input.
+  function promptEditor(prompt, field, onChange) {
+    const under = h('pre', { class: 'prompt-text prompt-under' });
+    const input = h('textarea', { class: 'prompt-input', spellcheck: 'false', placeholder: '(empty)' });
+    input.value = prompt[field] || '';
+
+    const paint = () => {
+      clear(under);
+      const text = input.value;
+      under.append(App.card.renderPromptText ? App.card.renderPromptText(text) : text);
+      // A trailing newline adds no height in pre but does in textarea: even them out.
+      if (text.endsWith('\n') || text === '') under.append('\u200b');
+    };
+    input.addEventListener('input', () => {
+      prompt[field] = input.value;
+      paint();
+      onChange();
+    });
+    paint();
+    // Move the cursor to the end of the text right after enabling the editor.
+    setTimeout(() => { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }, 0);
+    return h('div', { class: 'prompt-edit' }, under, input);
+  }
+
+  // Syntax highlighting is plugged in at stage three via App.card.renderPromptText.
+  function promptText(text) {
+    return h('pre', { class: 'prompt-text' }, App.card.renderPromptText ? App.card.renderPromptText(text) : text);
+  }
+
+  // Short numbers fit in half the card; everything else gets the normal width.
+  const NARROW = new Set(['CFG', 'Steps', 'Clip skip']);
+  function paramWidth(label) {
+    return NARROW.has(label) ? ' param-narrow' : '';
+  }
+
+  function paramGrid(params) {
+    return h('div', { class: 'param-grid' }, params.map(p =>
+      h('div', { class: `param${paramWidth(p.label)}`, title: p.sub ? `${p.value} ${p.sub}` : p.value },
+        h('div', { class: 'param-label' }, p.label),
+        // A suffix like "× 2" on the same line; the name gets truncated, the suffix is always visible.
+        h('div', { class: 'param-value' },
+          h('span', { class: 'param-main' }, p.value),
+          p.sub ? h('span', { class: 'param-sub' }, p.sub) : null),
+        h('button', { class: 'hover-copy', title: 'Copy value', onClick: e => flashIcon(e.currentTarget, copyText(p.value)) }, App.icons.svg('copy')))));
+  }
+
+  // The button icon turns into a checkmark for a second.
+  async function flashIcon(button, promise) {
+    const ok = await promise;
+    clear(button);
+    button.append(App.icons.svg(ok ? 'check' : 'x'));
+    setTimeout(() => { clear(button); button.append(App.icons.svg('copy')); }, 1200);
+  }
+
+  function modelList(models) {
+    return h('div', { class: 'models' },
+      models.map(m => h('div', { class: 'model-row' },
+        h('span', { class: `role role-${m.role}` }, m.role),
+        h('span', { class: 'model-name', title: m.name }, m.name),
+        m.weight != null ? h('span', { class: 'model-weight' }, `× ${m.weight}`) : null,
+        m.detail ? h('span', { class: 'model-weight' }, m.detail) : null,
+        m.hash ? h('span', { class: 'model-hash', title: m.hash }, String(m.hash)) : null)));
+  }
+
+  // Other graph nodes in three collapsible groups: used in generation,
+  // not connected to a sampler, canvas notes.
+  const GROUPS = [
+    { kind: 'used', title: 'Feeding samplers', open: false, hint: 'every string input reachable from a sampler, positive and negative included' },
+    { kind: 'unused', title: 'Not connected', open: false, hint: 'text nodes on the canvas that no sampler reads' },
+    { kind: 'note', title: 'Canvas notes', open: false, hint: 'Note and MarkdownNote nodes, never part of generation' },
+  ];
+
+  function nodeGroups(nodes) {
+    return h('div', { class: 'sections' }, GROUPS.map(g => {
+      const items = nodes.filter(n => (n.kind || 'used') === g.kind);
+      if (items.length === 0) return null;
+      return h('details', { class: 'sec sec-flat', open: g.open },
+        h('summary', { class: 'sec-head' },
+          h('span', { class: 'sec-key' }, g.title),
+          h('span', { class: 'sec-meta' }, `${items.length} · ${g.hint}`)),
+        h('div', { class: 'sec-body' }, nodeTabs(items)));
+    }));
+  }
+
+  function nodeTabs(nodes) {
+    let active = 0;
+    const body = h('div');
+    const strip = h('div', { class: 'tabs' });
+    const draw = () => {
+      clear(strip);
+      nodes.forEach((n, i) => strip.append(h('button', {
+        class: `tab${i === active ? ' active' : ''}`,
+        title: `${n.classType} · ${n.field}`,
+        onClick: () => { active = i; draw(); },
+      }, `#${n.id} ${n.title || n.classType}`, App.privacy.isSensitive(null, n.text) ? App.icons.svg('lock', 'tab-lock') : null)));
+      clear(body);
+      body.append(promptText(nodes[active].text));
+    };
+    draw();
+    return [strip, body];
+  }
+
+  function extraTable(extra) {
+    return h('details', { class: 'sec sec-flat' },
+      h('summary', { class: 'sec-head' },
+        h('span', { class: 'sec-key' }, 'Other parameters'),
+        h('span', { class: 'sec-meta' }, `${extra.length} values`)),
+      h('div', { class: 'sec-body' },
+        h('table', { class: 'kv' }, extra.map(e => h('tr',
+          h('td', { class: 'kv-key' }, e.key),
+          h('td', { class: 'kv-val' }, e.value, App.privacy.isSensitive(e.key, e.value) ? App.privacy.badge() : null))))));
+  }
+
+  return { render };
+})();
+
+// ---- src/js/75-prompt-syntax.js ----
+// Prompt syntax tokenizer. One shared scheme for A1111, ComfyUI and SwarmUI,
+// not tied to any generator. Separate from rendering: tokenize() returns a list of
+// { type, text, alt } and knows nothing about the DOM.
+//
+// Token types:
+//   text      plain text
+//   tag       angle-bracket tags: <lora:...>, <segment:...>, <weight[1.2]:...>, opening and closing parts
+//   tagname   tag name together with its [parameter] and colon
+//   brace     { } of choice blocks
+//   sep       alternative separator: | inside {}, | or , inside <random:...>
+//   paren     ( ) of emphasis
+//   bracket   [ ] of de-emphasis, alternation and scheduling
+//   weight    weight number: :1.2 before a closing bracket or in <lora:name:0.8>
+//   break     the word BREAK
+//   wildcard  __name__
+//   embedding embedding:name
+//   escape    escaped brackets \( \)
+//   comment   # to end of line, only at the start of a line
+// For tokens inside a choice block, the alt field alternates 0/1 per alternative.
+App.promptSyntax = (() => {
+  const TAG_OPEN = /^<([a-zA-Z_][\w-]*)(\[[^\]<>]*\])?(:|>)/;
+  const WEIGHT_TAIL = /:\s*-?\d*\.?\d+\s*$/;
+  const RANDOM_TAGS = new Set(['random', 'wildcard', 'alternate', 'fromto']);
+
+  function tokenize(text) {
+    const tokens = [];
+    const stack = [];   // contexts: { kind, sep, alt, name }
+    let buf = '';
+    let i = 0;
+    let lineStart = true;
+
+    const top = () => stack[stack.length - 1] || null;
+    const altOf = () => { const t = top(); return t && t.sep ? t.alt : null; };
+    const push = (type, s) => { if (s) tokens.push({ type, text: s, alt: altOf() }); };
+    const flush = () => { if (buf) { splitText(buf, altOf(), tokens); buf = ''; } };
+
+    // Split a trailing weight number off the buffer text: "(fur:1.2)" -> text "fur", weight ":1.2".
+    const flushWithWeight = () => {
+      const m = WEIGHT_TAIL.exec(buf);
+      if (m) {
+        const head = buf.slice(0, m.index);
+        buf = head;
+        flush();
+        tokens.push({ type: 'weight', text: m[0], alt: altOf() });
+      } else {
+        flush();
+      }
+    };
+
+    // For <random:...> the separator depends on the content: | if present, otherwise a comma.
+    const randomSeparator = (from) => {
+      let depth = 0;
+      for (let j = from; j < text.length; j++) {
+        const c = text[j];
+        if (c === '<') depth++;
+        else if (c === '>') { if (depth === 0) return text.slice(from, j).includes('|') ? '|' : ','; depth--; }
+      }
+      return '|';
+    };
+
+    while (i < text.length) {
+      const c = text[i];
+      const next = text[i + 1];
+
+      if (c === '\\' && next && '()[]{}<>\\'.includes(next)) {
+        flush(); push('escape', c + next); i += 2; lineStart = false; continue;
+      }
+
+      if (c === '#' && lineStart) {
+        flush();
+        let j = text.indexOf('\n', i);
+        if (j < 0) j = text.length;
+        push('comment', text.slice(i, j));
+        i = j;
+        continue;
+      }
+
+      if (c === '<') {
+        const m = TAG_OPEN.exec(text.slice(i));
+        if (m) {
+          flush();
+          const name = m[1].toLowerCase();
+          push('tag', '<');
+          push('tagname', m[0].slice(1));
+          if (m[3] === '>') {
+            // A tag without content, like <clear> or <break>.
+            tokens.pop(); tokens.pop();
+            push('tag', m[0]);
+          } else {
+            stack.push({ kind: 'tag', name, sep: RANDOM_TAGS.has(name) ? randomSeparator(i + m[0].length) : null, alt: 0 });
+          }
+          i += m[0].length; lineStart = false; continue;
+        }
+      }
+      if (c === '>' && top() && top().kind === 'tag') {
+        flushWithWeight(); stack.pop(); push('tag', '>'); i++; lineStart = false; continue;
+      }
+
+      if (c === '{') { flush(); stack.push({ kind: 'brace', sep: '|', alt: 0 }); push('brace', c); i++; lineStart = false; continue; }
+      if (c === '}' && top() && top().kind === 'brace') { flush(); stack.pop(); push('brace', c); i++; lineStart = false; continue; }
+
+      if (c === '(') { flush(); stack.push({ kind: 'paren', sep: null, alt: 0 }); push('paren', c); i++; lineStart = false; continue; }
+      if (c === ')' && top() && top().kind === 'paren') { flushWithWeight(); stack.pop(); push('paren', c); i++; lineStart = false; continue; }
+
+      if (c === '[') { flush(); stack.push({ kind: 'bracket', sep: '|', alt: 0 }); push('bracket', c); i++; lineStart = false; continue; }
+      if (c === ']' && top() && top().kind === 'bracket') { flushWithWeight(); stack.pop(); push('bracket', c); i++; lineStart = false; continue; }
+
+      const ctx = top();
+      if (ctx && ctx.sep && c === ctx.sep) {
+        flush(); push('sep', c); ctx.alt++; i++; lineStart = false; continue;
+      }
+
+      buf += c;
+      lineStart = c === '\n' || (lineStart && (c === ' ' || c === '\t'));
+      i++;
+    }
+    flush();
+    return tokens;
+  }
+
+  // Within plain text, pick out BREAK, __wildcard__ and embedding:name.
+  const INLINE = /(\bBREAK\b|__[\w\-./ ]+__|\bembedding:[\w\-.]+)/g;
+  function splitText(s, alt, out) {
+    let last = 0;
+    for (const m of s.matchAll(INLINE)) {
+      if (m.index > last) out.push({ type: 'text', text: s.slice(last, m.index), alt });
+      const t = m[0];
+      out.push({ type: t === 'BREAK' ? 'break' : t.startsWith('__') ? 'wildcard' : 'embedding', text: t, alt });
+      last = m.index + t.length;
+    }
+    if (last < s.length) out.push({ type: 'text', text: s.slice(last), alt });
+  }
+
+  return { tokenize };
+})();
+
+// Highlight rendering: a fragment with a <span class="ps-..."> per token.
+// The toggle is global and lasts until the page reloads.
+App.card.renderPromptText = function renderPromptText(text) {
+  if (!App.settings.highlight) return document.createTextNode(text);
+  const frag = document.createDocumentFragment();
+  for (const t of App.promptSyntax.tokenize(text)) {
+    if (t.type === 'text' && t.alt === null) { frag.append(document.createTextNode(t.text)); continue; }
+    const span = document.createElement('span');
+    span.className = `ps-${t.type}${t.alt !== null ? ` ps-alt-${t.alt % 2}` : ''}`;
+    span.textContent = t.text;
+    frag.append(span);
+  }
+  return frag;
+};
+
+// ---- src/js/90-app.js ----
+// Entry point: drag-and-drop over the whole window, adding files, clearing.
+App.app = (() => {
+  const { state } = App.ui;
+
+  async function addFiles(fileList) {
+    const files = Array.from(fileList || []).filter(f => f.type.startsWith('image/') || /\.(png|jpe?g|webp)$/i.test(f.name));
+    if (files.length === 0) return;
+    const firstNew = state.files.length;
+    for (const file of files) {
+      state.files.push(await App.source.readFile(file));
+    }
+    state.selected = firstNew;
+    App.ui.render();
+  }
+
+  function removeFile(index) {
+    const [rec] = state.files.splice(index, 1);
+    if (rec) URL.revokeObjectURL(rec.url);
+    if (state.selected >= state.files.length) state.selected = state.files.length - 1;
+    else if (state.selected > index) state.selected--;
+    App.ui.render();
+  }
+
+  // Keep only the opened file.
+  function clearOthers() {
+    const keep = state.files[state.selected];
+    state.files.forEach(r => { if (r !== keep) URL.revokeObjectURL(r.url); });
+    state.files.length = 0;
+    if (keep) state.files.push(keep);
+    state.selected = keep ? 0 : -1;
+    App.ui.render();
+  }
+
+  function clearAll() {
+    state.files.forEach(r => URL.revokeObjectURL(r.url));
+    state.files.length = 0;
+    state.selected = -1;
+    App.ui.render();
+  }
+
+  function initDragDrop() {
+    let depth = 0;
+    window.addEventListener('dragenter', e => { e.preventDefault(); depth++; document.body.classList.add('dragging'); });
+    window.addEventListener('dragleave', e => { e.preventDefault(); if (--depth <= 0) { depth = 0; document.body.classList.remove('dragging'); } });
+    window.addEventListener('dragover', e => { e.preventDefault(); });
+    window.addEventListener('drop', e => {
+      e.preventDefault();
+      depth = 0;
+      document.body.classList.remove('dragging');
+      addFiles(e.dataTransfer.files);
+    });
+  }
+
+  function init() {
+    App.ui.mount(document.getElementById('app'));
+    initDragDrop();
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+
+  return { addFiles, removeFile, clearOthers, clearAll };
+})();
+
+</script>
+</body>
+</html>

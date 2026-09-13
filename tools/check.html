@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fixture check</title>
+<!-- Runs all fixtures through the parsers and prints what was recognized.
+     Open via a local server from the project root:
+       python3 -m http.server 8765
+       http://127.0.0.1:8765/tools/check.html
+     fetch does not work from file://; in that case just drag the files onto the page. -->
+<link rel="stylesheet" href="../src/css/app.css">
+<style>
+  body { padding: 16px; }
+  table.chk { border-collapse: collapse; width: 100%; font-size: 13px; }
+  table.chk th, table.chk td { border: 1px solid var(--border); padding: 6px 8px; vertical-align: top; text-align: left; }
+  table.chk th { background: var(--bg-elevated); }
+  table.chk td.mono { font-family: var(--mono); white-space: pre-wrap; word-break: break-word; }
+  .warn { color: var(--amber); }
+  .ok { color: var(--accent); }
+</style>
+</head>
+<body>
+<h2>Fixture check</h2>
+<p id="status">Loading…</p>
+<table class="chk" id="out"></table>
+<div id="app" hidden></div>
+<script src="../src/js/00-util.js"></script>
+<script src="../src/js/05-icons.js"></script>
+<script src="../src/js/07-settings.js"></script>
+<script src="../src/js/08-privacy.js"></script>
+<script src="../src/js/10-png.js"></script>
+<script src="../src/js/20-source.js"></script>
+<script src="../src/js/30-detect.js"></script>
+<script src="../src/js/40-tree.js"></script>
+<script src="../src/js/50-ui.js"></script>
+<script src="../src/js/55-parsers.js"></script>
+<script src="../src/js/60-parse-a1111.js"></script>
+<script src="../src/js/61-parse-swarmui.js"></script>
+<script src="../src/js/62-parse-comfyui.js"></script>
+<script src="../src/js/63-parse-invokeai.js"></script>
+<script src="../src/js/64-comfy-workflow.js"></script>
+<script src="../src/js/70-card.js"></script>
+<script src="../src/js/75-prompt-syntax.js"></script>
+<script>
+const FILES = ['syn-comfyui.png', 'syn-comfyui-flux.png', 'syn-a1111.png', 'syn-invokeai.png', 'syn-invokeai-legacy.png', 'syn-novelai.png', 'syn-empty.png'];
+const { h } = App.util;
+const out = document.getElementById('out');
+const status = document.getElementById('status');
+
+function cut(s, n = 140) { s = String(s || ''); return s.length > n ? s.slice(0, n) + '…' : s; }
+
+function row(rec) {
+  const c = rec.card;
+  const cells = [
+    h('td', { class: 'mono' }, rec.name, '\n', rec.format, ' ', rec.width ? `${rec.width}×${rec.height}` : ''),
+    h('td', rec.generator.name, rec.generator.detail ? h('div', { class: 'mono' }, rec.generator.detail) : null,
+      h('div', { class: 'mono' }, rec.entries.map(e => `${e.key} [${e.source}]`).join('\n'))),
+    h('td', { class: 'mono' }, c ? cut(c.positive.text) : '—', c && c.positive.original ? h('div', { class: 'warn' }, 'orig: ', cut(c.positive.original)) : null),
+    h('td', { class: 'mono' }, c ? cut(c.negative.text) || '(empty)' : '—'),
+    h('td', { class: 'mono' }, c ? c.params.map(p => `${p.label}: ${p.value}`).join('\n') : '—'),
+    h('td', { class: 'mono' }, c ? c.models.map(m => `${m.role} ${m.name}${m.weight ? ' ×' + m.weight : ''}${m.hash ? ' ' + m.hash.slice(0, 12) : ''}`).join('\n') : '—'),
+    h('td', { class: 'mono' },
+      c && c.passes ? `passes: ${c.passes.map(p => p.label).join(' | ')}\n` : '',
+      c && c.textNodes ? `text nodes: ${c.textNodes.length}\n` : '',
+      c && c.extra.length ? `extra: ${c.extra.length}` : ''),
+    h('td', { class: rec.warnings.length ? 'warn' : 'ok' }, rec.warnings.length ? rec.warnings.join('\n') : 'ok'),
+  ];
+  return h('tr', cells);
+}
+
+function header() {
+  return h('tr', ['File', 'Generator / keys', 'Positive', 'Negative', 'Params', 'Models', 'Extras', 'Warnings'].map(t => h('th', t)));
+}
+
+async function run(files) {
+  out.append(header());
+  for (const f of files) {
+    const rec = await App.source.readFile(f);
+    out.append(row(rec));
+  }
+  status.textContent = `${files.length} files checked`;
+  document.body.dataset.ready = '1';
+}
+
+async function loadFixtures() {
+  const files = [];
+  for (const name of FILES) {
+    try {
+      const resp = await fetch('test/' + name);
+      if (!resp.ok) throw new Error(resp.status);
+      files.push(new File([await resp.blob()], name, { type: 'image/png' }));
+    } catch (e) {
+      status.textContent = `Cannot fetch ${name} (${e.message}). Serve the project over HTTP or drop files here.`;
+      return;
+    }
+  }
+  run(files);
+}
+
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => { e.preventDefault(); out.replaceChildren(); run(Array.from(e.dataTransfer.files)); });
+loadFixtures();
+</script>
+</body>
+</html>

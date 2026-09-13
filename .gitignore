@@ -1,0 +1,8 @@
+.DS_Store
+*.swp
+Thumbs.db
+__pycache__/
+
+# Local notes, not for the repository
+CLAUDE.md
+BACKLOG.md
