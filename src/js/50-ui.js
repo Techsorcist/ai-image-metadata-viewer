@@ -151,10 +151,11 @@ App.ui = (() => {
         h('div', { class: 'about-title' }, a.name),
         h('div', { class: 'about-version' }, `version ${a.version}`),
         h('div', { class: 'about-row' }, 'by ', h('strong', a.author)),
-        h('div', { class: 'about-row' }, a.repo
-          ? h('a', { href: a.repo, target: '_blank', rel: 'noopener' }, a.repo)
-          : h('span', { class: 'about-muted' }, 'Repository link coming soon')),
-        h('p', { class: 'about-text' }, 'Everything runs in your browser. No image, prompt or metadata ever leaves your machine.'),
+        h('p', { class: 'about-text' }, 'Shows the generation metadata hidden inside AI images: prompts, models, seeds, samplers, LoRAs and the raw ComfyUI graph. Made for people who generate a lot and want to know, months later, how exactly a picture was made.'),
+        h('p', { class: 'about-text' }, 'Everything runs in your browser. No image, prompt or metadata ever leaves your machine. Open it offline, it works the same.'),
+        h('div', { class: 'about-links' },
+          a.repo ? h('a', { href: a.repo, target: '_blank', rel: 'noopener' }, 'Source on GitHub') : null,
+          a.demo ? h('a', { href: a.demo, target: '_blank', rel: 'noopener' }, 'Online demo') : null),
         h('p', { class: 'about-text' }, 'Thank you for using it.'),
         h('button', { class: 'btn', onClick: close }, 'Close')));
     document.addEventListener('keydown', onKey);

@@ -5,6 +5,7 @@ App.about = {
   version: '1.0.0',
   author: 'Techsorcist',
   repo: 'https://github.com/Techsorcist/ai-image-metadata-viewer',
+  demo: 'https://techsorcist.github.io/ai-image-metadata-viewer/',
 };
 
 App.settings = {

@@ -646,6 +646,9 @@ button.btn-sm.active { color: var(--accent); border-color: var(--accent); backgr
 .about-version { font-family: var(--mono); color: var(--text-muted); font-size: 12px; }
 .about-row { font-size: 14px; }
 .about-row a { color: var(--accent); word-break: break-all; }
+.about-links { display: flex; gap: 16px; font-size: 14px; }
+.about-links a { color: var(--accent); text-decoration: none; }
+.about-links a:hover { text-decoration: underline; }
 .about-muted { color: var(--text-muted); }
 .about-text { margin: 4px 0 0; font-size: 13px; color: var(--text-muted); line-height: 1.5; }
 .about .btn { align-self: flex-end; margin-top: 8px; }

@@ -4,7 +4,9 @@ A single self-contained HTML file that shows the generation metadata embedded in
 
 ## Getting started
 
-Download `ai-image-metadata-viewer.html` and open it in any modern browser. That is the whole installation: no server, no install, no account. Bookmark it, keep it on a USB stick, it works from a plain `file://` URL.
+Download [`ai-image-metadata-viewer.html`](https://github.com/Techsorcist/ai-image-metadata-viewer/releases/latest) from the latest release and open it in any modern browser. That is the whole installation: no server, no install, no account. Bookmark it, keep it on a USB stick, it works from a plain `file://` URL.
+
+Or try the [online demo](https://techsorcist.github.io/ai-image-metadata-viewer/). It is the very same file served from GitHub Pages: your images are still processed inside your browser and never uploaded anywhere.
 
 ## Privacy first
 
@@ -29,7 +31,8 @@ JPEG and WebP (EXIF `UserComment`) are planned.
 ## Development
 
 - `index.dev.html` loads the sources from `src/` directly, no build needed while working.
-- `./build.sh` concatenates everything into `ai-image-metadata-viewer.html` in the repository root. Requires only a POSIX shell. The built file is committed, so the download link above always points at the latest build.
+- `./build.sh` concatenates everything into `ai-image-metadata-viewer.html` in the repository root. Requires only a POSIX shell. The built file is committed.
+- Every push to `master` redeploys the demo on GitHub Pages. Pushing a tag like `v1.2.0` creates a GitHub Release with the built file attached; the tag must match the version in `src/js/07-settings.js`.
 - `tools/test/` holds synthetic sample images written by `tools/make-synthetic.py`; `tools/check.html` runs every file there through the parsers at once (serve the project over HTTP first, `fetch` does not work from `file://`).
 
 ## Acknowledgements
