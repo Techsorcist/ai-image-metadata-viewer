@@ -2,7 +2,9 @@
 *.swp
 Thumbs.db
 __pycache__/
+.venv/
 
 # Local notes, not for the repository
 CLAUDE.md
 BACKLOG.md
+.claude/
