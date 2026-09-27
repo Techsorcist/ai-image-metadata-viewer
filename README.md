@@ -87,7 +87,7 @@ aimeta view -l card image.png
 aimeta view -l full --color always image.png | less -R
 ```
 
-`extract` writes the same data into files, as text or as JSON with the card model, and without the markers:
+`extract` writes the same data into files, as text or as JSON with the card model, and without the markers. Both commands also take `-f a1111`: the main prompt and settings the way A1111 writes them, ready for Read generation parameters in A1111 or Forge; basic level only, extra sampler passes are counted, not shown.
 
 ```sh
 aimeta extract ~/gens                              # a.png -> a.txt next to it

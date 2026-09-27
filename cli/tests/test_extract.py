@@ -81,7 +81,7 @@ class OutDirTest(ExtractCase):
         self.assertRun(run_aimeta('extract', '-r', '--out-dir', self.out, self.tmp / 'in'), written=2)
         for image in (self.a, self.b):
             sub = image.parent.name
-            self.assertTrue((self.out / sub / '0001.txt').read_text(encoding='utf-8').startswith(f'== {image} ·'))
+            self.assertTrue((self.out / sub / '0001.txt').read_text(encoding='utf-8').splitlines()[1] == str(image))
             self.assertFalse(image.with_suffix('.txt').exists())
 
     def test_same_name_from_two_files(self):
@@ -92,7 +92,7 @@ class OutDirTest(ExtractCase):
                 self.assertRun(run, written=1, errors=1)
                 clashes = [line for line in run.stderr.splitlines() if 'already belongs to' in line]
                 self.assertEqual(clashes, [f'{self.b}: {target} already belongs to {self.a}'])
-                self.assertTrue(target.read_text(encoding='utf-8').startswith(f'== {self.a} ·'))
+                self.assertTrue(target.read_text(encoding='utf-8').splitlines()[1] == str(self.a))
 
 
 class SourceProtectionTest(ExtractCase):
@@ -304,14 +304,17 @@ class TooDeepTest(ExtractCase):
         args = aimeta.build_parser().parse_args([*argv, deep, str(self.good)])
         with mock.patch.object(render, 'to_text', giving_up(render.to_text)), \
                 mock.patch.object(render, 'to_json', giving_up(render.to_json)), \
+                mock.patch.object(render, 'to_a1111', giving_up(render.to_a1111)), \
                 redirect_stdout(out), redirect_stderr(err):
             code = args.func(args)
         return code, out.getvalue(), err.getvalue()
 
     def test_extract(self):
-        for fmt, suffix in aimeta.SUFFIXES.items():
+        # a1111 has the basic level only, and shares .txt with text: hence --force.
+        for fmt, level, *force in (('text', 'full'), ('json', 'full'), ('a1111', 'basic', '--force')):
+            suffix = aimeta.SUFFIXES[fmt]
             with self.subTest(format=fmt):
-                code, _, err = self.run_in_process('extract', '-l', 'full', '-f', fmt)
+                code, _, err = self.run_in_process('extract', '-l', level, '-f', fmt, *force)
                 self.assertEqual(code, 1)
                 self.assertIn(f'{self.deep}: Metadata is nested too deep to render', err)
                 self.assertEqual(err.splitlines()[-1], SUMMARY.format(1, 0, 0, 0, 1))
@@ -322,7 +325,7 @@ class TooDeepTest(ExtractCase):
         code, out, err = self.run_in_process('view', '-l', 'full', '--color', 'never')
         self.assertEqual(code, 1)
         self.assertIn(f'{self.deep}: Metadata is nested too deep to render', err)
-        self.assertIn(f'== {self.good} ·', out)
+        self.assertIn(f'\n{self.good}\n', out)
 
 
 if __name__ == '__main__':

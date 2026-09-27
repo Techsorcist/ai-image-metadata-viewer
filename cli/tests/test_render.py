@@ -36,7 +36,8 @@ class RenderTest(EngineCase):
         detail = r['generator']['detail']
         self.assertTrue(detail)
         model = render.select(r, 'basic')
-        self.assertIn(detail, render.to_text(model).splitlines()[0])
+        # The header block: ruler, file, generator and size, ruler.
+        self.assertIn(detail, render.to_text(model).splitlines()[2])
         self.assertEqual(json.loads(render.to_json(model))['generator']['detail'], detail)
 
     def test_control_characters_escaped(self):
@@ -48,7 +49,7 @@ class RenderTest(EngineCase):
                 self.assertNotIn('\x9b', out)
                 self.assertNotIn('\x1b', SGR.sub('', out))
                 # CR/LF prompts exist and are no business of the terminal police.
-                self.assertIn('  line one\n  line two\n', out)
+                self.assertIn('\nline one\nline two\n', out)
                 self.assertNotIn('\\x0d', out)
 
     def test_has_content(self):
@@ -79,8 +80,8 @@ class ViewTest(EngineCase):
         path = self.write('surrogate.png', png(text('prompt', comfy_prompt('cute cat \ud83d'))))
         run = view(path, 'tools/test/syn-a1111.png')
         self.assertClean(run)
-        self.assertIn(f'== {path}', run.stdout)
-        self.assertIn('== tools/test/syn-a1111.png', run.stdout)
+        self.assertIn(f'\n{path}\n', run.stdout)
+        self.assertIn('\ntools/test/syn-a1111.png\n', run.stdout)
         self.assertIn('cute cat \\ud83d', run.stdout)
 
     def test_file_name_not_utf8(self):
@@ -91,7 +92,7 @@ class ViewTest(EngineCase):
         run = view(path, 'tools/test/syn-a1111.png')
         self.assertClean(run)
         self.assertIn('caf\\udce9.png', run.stdout)
-        self.assertIn('== tools/test/syn-a1111.png', run.stdout)
+        self.assertIn('\ntools/test/syn-a1111.png\n', run.stdout)
 
     def test_control_characters_in_warning(self):
         run = view(self.write('esc-chunk.png', png(overlong(b'\x1b[2J'))))
@@ -146,6 +147,45 @@ class ViewTest(EngineCase):
         self.assertClean(run)
         self.assertRegex(run.stdout, re.compile(re.escape(f'{PRIVATE_PATH} [private]') + '$', re.M))
 
+
+
+class A1111Test(EngineCase):
+    """-f a1111: the parameters text A1111 itself writes, so that it pastes back in."""
+
+    def test_round_trip_through_our_own_parser(self):
+        # What we write, the A1111 parser in src/js must read back as the same prompts and settings.
+        source = self.sample('syn-a1111.png')
+        written = render.to_a1111(render.select(source, 'card'))
+        again = self.record('again.png', png(text('parameters', written)))
+        self.assertEqual(again['generator']['id'], 'a1111')
+        for key in ('positive', 'negative'):
+            self.assertEqual(again['card'][key]['text'], source['card'][key]['text'])
+        values = lambda r: {p['label']: p['value'] for p in r['card']['params']}
+        self.assertEqual(values(again), values(source))
+
+    def test_names_and_quoting(self):
+        r = self.record('names.png', png(text('prompt', comfy_prompt('a cat', 'blurry'))))
+        out = render.to_a1111(render.select(r, 'card'))
+        self.assertEqual(out.splitlines()[:2], ['a cat', 'Negative prompt: blurry'])
+        self.assertIn('CFG scale: 7', out)
+        self.assertIn('Size: 512x512', out)
+        self.assertNotIn('\x1b', out)
+        model = dict(render.select(r, 'card'), params=[{'label': 'Note', 'value': 'a, b: c', 'sub': None}])
+        self.assertIn('Note: "a, b: c"', render.to_a1111(model))
+
+    def test_passes_are_counted_not_shown(self):
+        out = render.to_a1111(render.select(self.sample('syn-comfyui.png'), 'card'))
+        self.assertIn('Passes: 2 (first shown)', out)
+        self.assertEqual(len(out.splitlines()), 3)
+
+    def test_view_and_levels(self):
+        run = view('-f', 'a1111', SAMPLES / 'syn-a1111.png')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(f"\n{SAMPLES / 'syn-a1111.png'}\n", run.stdout)
+        self.assertIn('Negative prompt:', run.stdout)
+        run = view('-f', 'a1111', '-l', 'card', SAMPLES / 'syn-a1111.png')
+        self.assertEqual(run.returncode, 2, run.stderr)
+        self.assertIn('basic level only', run.stderr)
 
 if __name__ == '__main__':
     unittest.main()

@@ -39,6 +39,8 @@ def report(path, messages):
 
 
 def cmd_view(args):
+    if (error := a1111_level(args)) is not None:
+        return error
     engine = Engine()
     color = color_enabled(args.color)
 
@@ -48,9 +50,13 @@ def cmd_view(args):
     failed = False
     for i, path in enumerate(args.files):
         record = read_record(engine, path)
-        model = render.select(record, args.level)
         try:
-            text = render.to_text(model, color=color, is_private=is_private)
+            if args.format == 'a1111':
+                # Several files in a row need to say which is which, so the header stays here.
+                body = render.to_a1111(render.select(record, 'card'))
+                text = render.header(render.select(record, 'basic'), color) + '\n\n' + (body or 'no parsed metadata\n')
+            else:
+                text = render.to_text(render.select(record, args.level), color=color, is_private=is_private)
         except RecursionError:
             text = ''
             record['warnings'].append(TOO_DEEP)
@@ -66,7 +72,7 @@ def cmd_view(args):
 # --- extract ---
 
 # A per-file output is the image path with its suffix replaced by this one.
-SUFFIXES = {'text': '.txt', 'json': '.json'}
+SUFFIXES = {'text': '.txt', 'json': '.json', 'a1111': '.txt'}
 
 
 def open_output(path):
@@ -76,7 +82,7 @@ def open_output(path):
 
 
 def usage_error(message):
-    print(render.clean_text(f'aimeta extract: error: {message}'), file=sys.stderr)
+    print(render.clean_text(f'aimeta: error: {message}'), file=sys.stderr)
     return 2
 
 
@@ -143,8 +149,13 @@ def output_path(path, base, out_dir, suffix):
 
 
 def to_output(model, fmt, compact=False):
+    """compact: this goes into the --one stream, not into a file of its own."""
     if fmt == 'json':
         return render.to_json(model, compact=compact) + '\n'
+    if fmt == 'a1111':
+        # A sidecar is the bare parameters text, ready to paste; in one shared file every block needs its header.
+        body = render.to_a1111(model)
+        return render.header(model) + '\n\n' + body if body and compact else body
     # No ANSI and no [private] markers in files: extract writes the data as is.
     return render.to_text(model, color=False, is_private=None)
 
@@ -174,21 +185,24 @@ def extract(engine, inputs, args, out, counts):
             continue
         # Whatever survived the warnings is still written, the exit code tells the rest.
         failed = bool(record['warnings'])
-        model = render.select(record, args.level)
+        # A1111 takes prompts and params only, but counts the passes of the card level.
+        model = render.select(record, 'card' if args.format == 'a1111' else args.level)
         text = None
         if render.has_content(model):
             try:
-                text = to_output(model, args.format, compact=out is not None)
+                text = to_output(model, args.format, compact=out is not None) or None
             except RecursionError:
                 report(path, [TOO_DEEP])
                 failed = True
+            if text is None and not failed:
+                counts['empty'] += 1
         else:
             counts['empty'] += 1
         if text is None:
             pass
         elif out is not None:
             # A blank line between text blocks, as in view; JSONL needs none.
-            if args.format == 'text' and counts['written']:
+            if args.format != 'json' and counts['written']:
                 out.write('\n')
             out.write(text)
             counts['written'] += 1
@@ -217,7 +231,16 @@ def extract(engine, inputs, args, out, counts):
         counts['errors'] += failed
 
 
+def a1111_level(args):
+    """A1111's text has no room for passes, nodes or raw chunks: only the basic level exists there."""
+    if args.format == 'a1111' and args.level != 'basic':
+        return usage_error('-f a1111 has the basic level only')
+    return None
+
+
 def cmd_extract(args):
+    if (error := a1111_level(args)) is not None:
+        return error
     # An unset shell variable must not quietly turn into "next to the images" or "the current directory".
     if args.one == '' or args.out_dir == '':
         return usage_error('empty --one or --out-dir')
@@ -272,6 +295,8 @@ def build_parser():
     view = commands.add_parser('view', help='print metadata to the terminal')
     view.add_argument('files', nargs='+', metavar='FILE')
     add_level(view)
+    view.add_argument('-f', '--format', choices=('text', 'a1111'), default='text',
+                      help='text: sections; a1111: prompt and settings as A1111 writes them, basic level only (default: text)')
     view.add_argument('--color', choices=('auto', 'always', 'never'), default='auto',
                       help='auto: only on a terminal and without NO_COLOR (default: auto)')
     view.set_defaults(func=cmd_view)
@@ -280,7 +305,8 @@ def build_parser():
     extract.add_argument('paths', nargs='+', metavar='PATH',
                          help='image files, taken as given, or directories to take the *.png files from')
     extract.add_argument('-f', '--format', choices=tuple(SUFFIXES), default='text',
-                         help='text: same as view, without colors; json: the card model, JSONL with --one (default: text)')
+                         help='text: same as view, without colors; json: the card model, JSONL with --one; '
+                              'a1111: prompt and settings as A1111 writes them, basic level only (default: text)')
     add_level(extract)
     where = extract.add_mutually_exclusive_group()
     where.add_argument('--out-dir', metavar='DIR',
