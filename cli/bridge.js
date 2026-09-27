@@ -16,5 +16,11 @@ App.bridge = (() => {
     return JSON.stringify(record, (_, v) => (v instanceof Set ? [...v] : v));
   }
 
-  return { readRecord };
+  // pairsJson: [[key, value], ...] for one whole record, so a file costs one call, not one per value.
+  // key is null where the card judges by value alone (text nodes, see 70-card.js).
+  function privateFlags(pairsJson) {
+    return JSON.stringify(JSON.parse(pairsJson).map(([key, value]) => App.privacy.isSensitive(key, value)));
+  }
+
+  return { readRecord, privateFlags };
 })();
