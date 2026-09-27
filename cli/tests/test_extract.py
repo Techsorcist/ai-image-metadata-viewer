@@ -58,15 +58,15 @@ class SidecarTest(ExtractCase):
         d = self.samples()
         wanted = {p.stem + '.txt' for p in SAMPLES.glob('*.png') if p.name not in EMPTY_AT_BASIC}
         n = len(wanted)
-        self.assertRun(run_aimeta('extract', d), written=n, empty=2)
+        self.assertRun(run_aimeta('extract', d), written=n, empty=len(EMPTY_AT_BASIC))
         self.assertEqual({p.name for p in d.glob('*.txt')}, wanted)
 
         sidecar = d / 'syn-a1111.txt'
         fresh = sidecar.read_text(encoding='utf-8')
         sidecar.write_text('stale\n', encoding='utf-8')
-        self.assertRun(run_aimeta('extract', d), skipped=n, empty=2)
+        self.assertRun(run_aimeta('extract', d), skipped=n, empty=len(EMPTY_AT_BASIC))
         self.assertEqual(sidecar.read_text(encoding='utf-8'), 'stale\n')
-        self.assertRun(run_aimeta('extract', '--force', d), written=n, empty=2)
+        self.assertRun(run_aimeta('extract', '--force', d), written=n, empty=len(EMPTY_AT_BASIC))
         self.assertEqual(sidecar.read_text(encoding='utf-8'), fresh)
 
 
@@ -104,7 +104,7 @@ class SourceProtectionTest(ExtractCase):
             with self.subTest(first=order[0].name):
                 run = run_aimeta('extract', '--force', *order)
                 self.assertRun(run, errors=2)
-                self.assertIn('is an input file, not overwriting it', run.stderr)
+                self.assertIn('is not a plain text file, not overwriting it', run.stderr)
                 self.assertEqual(impostor.read_bytes(), (SAMPLES / 'syn-comfyui.png').read_bytes())
 
     def test_one_onto_an_input(self):
@@ -112,8 +112,63 @@ class SourceProtectionTest(ExtractCase):
         # --force, or the "exists" check answers first and this one is never asked.
         run = run_aimeta('extract', '--force', '--one', image, image.parent)
         self.assertEqual(run.returncode, 2, run.stderr)
-        self.assertIn(f'{image} is one of the inputs', run.stderr)
+        self.assertIn(f'{image} is not a plain text file, not overwriting it', run.stderr)
         self.assertEqual(image.read_bytes(), (SAMPLES / 'syn-a1111.png').read_bytes())
+
+    def test_binary_nobody_parses(self):
+        # An AVIF called a.txt: not a PNG, not text either, so an image all the same.
+        avif = b'\x00\x00\x00\x1cftypavif' + bytes(64)
+        self.copy('a.png', 'syn-a1111.png')
+        impostor = self.put('a.txt', avif)
+        run = run_aimeta('extract', '--force', self.tmp / 'a.png', impostor)
+        self.assertIn('is not a plain text file, not overwriting it', run.stderr)
+        self.assertEqual(impostor.read_bytes(), avif)
+
+    def test_first_glob_item_as_one(self):
+        # `--force --one shots/*.png`: the shell hands the first image to --one.
+        first = self.copy('shots/1.png', 'syn-a1111.png')
+        second = self.copy('shots/2.png', 'syn-comfyui.png')
+        run = run_aimeta('extract', '--force', '--one', first, second)
+        self.assertEqual(run.returncode, 2, run.stderr)
+        self.assertEqual(first.read_bytes(), (SAMPLES / 'syn-a1111.png').read_bytes())
+
+    def test_hard_link(self):
+        # b.txt is a.png under another name: realpath cannot tell, the inode can.
+        a = self.copy('d/a.png', 'syn-a1111.png')
+        self.copy('d/b.png', 'syn-comfyui.png')
+        os.link(a, self.tmp / 'd' / 'b.txt')
+        run = run_aimeta('extract', '--force', self.tmp / 'd')
+        self.assertIn('is not a plain text file, not overwriting it', run.stderr)
+        self.assertEqual(a.read_bytes(), (SAMPLES / 'syn-a1111.png').read_bytes())
+
+    def test_pipe_input(self):
+        # The guard must not read a pipe: the bytes would be gone before read_record gets them.
+        data = (SAMPLES / 'syn-a1111.png').read_bytes()
+        run = subprocess.run([sys.executable, str(CLI / 'aimeta.py'), 'extract', '-f', 'json', '--one', '-', '/dev/stdin'],
+                             input=data, capture_output=True, env=dict(os.environ, PYTHONIOENCODING='utf-8'), timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(json.loads(run.stdout)['generator']['id'], 'a1111')
+        run = subprocess.run([sys.executable, str(CLI / 'aimeta.py'), 'extract', '--out-dir', str(self.tmp / 'o'), '/dev/stdin'],
+                             input=data, capture_output=True, env=dict(os.environ, PYTHONIOENCODING='utf-8'), timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertTrue((self.tmp / 'o' / 'stdin.txt').exists(), run.stderr)
+
+    def test_target_links_to_an_image(self):
+        # a.txt -> other.png, and other.png is not even an input: the bytes decide, not the list.
+        other = self.copy('other.png', 'syn-comfyui.png')
+        self.copy('s/a.png', 'syn-a1111.png')
+        os.symlink(other, self.tmp / 's' / 'a.txt')
+        run = run_aimeta('extract', '--force', self.tmp / 's' / 'a.png')
+        self.assertIn('is not a plain text file, not overwriting it', run.stderr)
+        self.assertEqual(other.read_bytes(), (SAMPLES / 'syn-comfyui.png').read_bytes())
+
+    def test_binary_sidecar_name_under_a_directory_input(self):
+        # Same AVIF as above, but the directory only hands over *.png: a.txt is no input now.
+        avif = b'\x00\x00\x00\x1cftypavif' + bytes(64)
+        self.copy('d/a.png', 'syn-a1111.png')
+        impostor = self.put('d/a.txt', avif)
+        run_aimeta('extract', '--force', self.tmp / 'd')
+        self.assertEqual(impostor.read_bytes(), avif)
 
 
 class OneTest(ExtractCase):
@@ -141,6 +196,20 @@ class OneTest(ExtractCase):
         self.assertEqual(run.returncode, 2, run.stderr)
         self.assertIn(f'{target} exists, add --force to overwrite it', run.stderr)
         self.assertEqual(target.read_bytes(), b'keep me\n')
+
+    def test_one_into_a_pipe(self):
+        # /dev/stdout on a pipe exists but stores nothing: no --force needed, and nothing to read (it used to hang).
+        for force in ((), ('--force',)):
+            with self.subTest(force=bool(force)):
+                run = run_aimeta('extract', *force, '-f', 'json', '--one', '/dev/stdout', self.copy('a.png', 'syn-a1111.png'))
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(json.loads(run.stdout)['generator']['id'], 'a1111')
+
+    def test_utf16_previous_run(self):
+        # PowerShell 5.1 redirects in UTF-16: NUL bytes everywhere, and still text.
+        target = self.put('all.jsonl', '{"a": 1}\n'.encode('utf-16'))
+        run = run_aimeta('extract', '--force', '--one', target, self.copy('a.png', 'syn-a1111.png'))
+        self.assertEqual(run.returncode, 0, run.stderr)
 
 
 class OutputContentTest(ExtractCase):
@@ -173,12 +242,15 @@ class WarningTest(ExtractCase):
         # `extract dir/*` the second time: last run's sidecars are inputs now, and they are not PNG.
         d = self.samples()
         n = len(list(d.glob('*.png'))) - len(EMPTY_AT_BASIC)
-        self.assertRun(run_aimeta('extract', *sorted(d.glob('*'))), written=n, empty=2)
-        self.assertRun(run_aimeta('extract', *sorted(d.glob('*'))), skipped=n, not_png=n, empty=2)
+        self.assertRun(run_aimeta('extract', *sorted(d.glob('*'))), written=n, empty=len(EMPTY_AT_BASIC))
+        self.assertRun(run_aimeta('extract', *sorted(d.glob('*'))), skipped=n, not_png=n, empty=len(EMPTY_AT_BASIC))
+        # With --force the sidecars in the glob are what gets replaced, they are not images to protect.
+        self.assertRun(run_aimeta('extract', '--force', *sorted(d.glob('*'))), written=n, not_png=n, empty=len(EMPTY_AT_BASIC))
 
     def test_same_file_twice(self):
         d = self.samples()
-        self.assertRun(run_aimeta('extract', d, d / 'syn-a1111.png'), written=5, empty=2)
+        n = len(list(d.glob('*.png'))) - len(EMPTY_AT_BASIC)
+        self.assertRun(run_aimeta('extract', d, d / 'syn-a1111.png'), written=n, empty=len(EMPTY_AT_BASIC))
 
     def test_empty_destination(self):
         # An unset shell variable, not a wish to write into the current directory.

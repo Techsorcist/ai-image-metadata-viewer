@@ -113,6 +113,28 @@ def collect(paths, recursive, fail):
     return found
 
 
+def special(path):
+    """An existing FIFO, device, /dev/stdout or >(...): nothing stored there to lose, and nothing to read."""
+    return os.path.exists(path) and (not os.path.isfile(path) or os.path.realpath(path).startswith('/dev/'))
+
+
+def replaceable(path):
+    """May --force overwrite this existing output path? Only a regular file of plain text.
+
+    That is last run's sidecar or --one file. Anything binary is somebody's image, whatever its
+    name or format, and hard links or symlinks to it change nothing: the bytes are judged, not
+    the name. git's rule of thumb: no NUL in the first 8000 bytes, a UTF-16 BOM excused.
+    """
+    if not os.path.isfile(path) or special(path):
+        return False
+    try:
+        with open(path, 'rb') as f:
+            head = f.read(8000)
+    except OSError:
+        return False
+    return head.startswith((b'\xff\xfe', b'\xfe\xff')) or b'\0' not in head
+
+
 def output_path(path, base, out_dir, suffix):
     """Next to the image, or under out_dir with the tree below its directory input mirrored."""
     if out_dir is not None:
@@ -142,7 +164,6 @@ def write_file(path, target, text):
 def extract(engine, inputs, args, out, counts):
     """The run itself. out is the --one stream, None means one output per image."""
     suffix = SUFFIXES[args.format]
-    sources = {os.path.realpath(path) for path, _ in inputs}
     owners = {}  # real path of an output -> the image it belongs to in this run
     for path, base in inputs:
         record = read_record(engine, path)
@@ -183,9 +204,9 @@ def extract(engine, inputs, args, out, counts):
                 owners[key] = path
                 if os.path.lexists(target) and not args.force:
                     counts['skipped'] += 1
-                elif key in sources:
+                elif os.path.lexists(target) and not replaceable(target):
                     # An image named like the output of another one: --force is not a license to overwrite sources.
-                    report(path, [f'{target} is an input file, not overwriting it'])
+                    report(path, [f'{target} is not a plain text file, not overwriting it'])
                     failed = True
                 elif write_file(path, target, text):
                     counts['written'] += 1
@@ -204,8 +225,12 @@ def cmd_extract(args):
         # JSONL is for machines, and they expect UTF-8 whatever the locale says.
         sys.stdout.reconfigure(encoding='utf-8')
     one_file = args.one if args.one != '-' else None
-    if one_file and os.path.lexists(one_file) and not args.force:
-        return usage_error(f'{one_file} exists, add --force to overwrite it')
+    if one_file and os.path.lexists(one_file) and not special(one_file):
+        if not args.force:
+            return usage_error(f'{one_file} exists, add --force to overwrite it')
+        if not replaceable(one_file):
+            # Also `--one shots/*.png`, where the shell hands the first image to --one.
+            return usage_error(f'{one_file} is not a plain text file, not overwriting it')
 
     counts = {'written': 0, 'skipped': 0, 'not png': 0, 'empty': 0, 'errors': 0}
 
@@ -214,8 +239,6 @@ def cmd_extract(args):
         counts['errors'] += 1
 
     inputs = collect(args.paths, args.recursive, fail)
-    if one_file and os.path.realpath(one_file) in {os.path.realpath(path) for path, _ in inputs}:
-        return usage_error(f'{one_file} is one of the inputs')
 
     # One engine per process and one thread: the QuickJS context is bound to the thread that made it.
     engine = Engine()
