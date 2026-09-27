@@ -277,16 +277,13 @@ class WarningTest(ExtractCase):
         self.assertTrue(good.with_suffix('.txt').exists())
 
 
-def deep_list(depth):
-    """[[[...]]] built bottom up: a recursive builder would hit the very limit under test."""
-    value = []
-    for _ in range(depth):
-        value = [value]
-    return value
-
-
 class TooDeepTest(ExtractCase):
-    """Python 3.11 cannot even get such a record out of json.loads, so it is slipped into the model instead."""
+    """The guard for metadata nested deeper than rendering survives.
+
+    How deep that is depends on the Python: 3.11 cannot even get such a record out of json.loads,
+    3.14 renders a few thousand levels without blinking. So the renderer is made to give up on
+    one file instead, which is the case the guard exists for, whatever the version.
+    """
 
     def setUp(self):
         super().setUp()
@@ -294,18 +291,20 @@ class TooDeepTest(ExtractCase):
         self.good = self.copy('good.png', 'syn-comfyui.png')
 
     def run_in_process(self, *argv):
-        original = render.select
         deep = str(self.deep)
 
-        def select(record, level):
-            model = original(record, level)
-            if record['path'] == deep:
-                model['raw'] = [{'key': 'prompt', 'source': 'PNG tEXt', 'json': deep_list(3000)}]
-            return model
+        def giving_up(original):
+            def render_or_overflow(model, *a, **kw):
+                if model['file'] == deep:
+                    raise RecursionError('maximum recursion depth exceeded')
+                return original(model, *a, **kw)
+            return render_or_overflow
 
         out, err = io.StringIO(), io.StringIO()
         args = aimeta.build_parser().parse_args([*argv, deep, str(self.good)])
-        with mock.patch.object(render, 'select', select), redirect_stdout(out), redirect_stderr(err):
+        with mock.patch.object(render, 'to_text', giving_up(render.to_text)), \
+                mock.patch.object(render, 'to_json', giving_up(render.to_json)), \
+                redirect_stdout(out), redirect_stderr(err):
             code = args.func(args)
         return code, out.getvalue(), err.getvalue()
 
