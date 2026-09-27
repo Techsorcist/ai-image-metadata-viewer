@@ -1,0 +1,30 @@
+#!/bin/sh
+# Runs the console mode from anywhere: symlink this file into ~/.local/bin and call `aimeta`.
+# On the first run, and again whenever requirements.txt changes, it sets up .venv next to itself.
+# Dependencies: POSIX sh, python3 with the venv module. The rest goes into the venv.
+set -eu
+
+# The real location behind any chain of symlinks. readlink -f would do it in one go,
+# on GNU systems, which is exactly why it is not used.
+self=$0
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case $link in
+    /*) self=$link ;;
+    *) self=$(dirname "$self")/$link ;;
+  esac
+done
+dir=$(CDPATH='' cd "$(dirname "$self")" && pwd -P)
+venv=$dir/.venv
+# Touched only after pip succeeded, so a failed install is retried on the next run.
+stamp=$venv/.requirements-installed
+
+if [ ! -f "$stamp" ] || [ "$dir/requirements.txt" -nt "$stamp" ]; then
+  echo "aimeta: setting up $venv" >&2
+  # stdout stays clean for `extract --one -`, even on the first run.
+  python3 -m venv "$venv" >&2
+  "$venv/bin/python" -m pip install -q -r "$dir/requirements.txt" >&2
+  touch "$stamp"
+fi
+
+exec "$venv/bin/python" "$dir/aimeta.py" "$@"
