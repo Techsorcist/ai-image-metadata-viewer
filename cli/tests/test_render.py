@@ -96,7 +96,7 @@ class ViewTest(EngineCase):
 
     def test_control_characters_in_warning(self):
         run = view(self.write('esc-chunk.png', png(overlong(b'\x1b[2J'))))
-        self.assertIn('PNG parse error', run.stderr)
+        self.assertIn('Stopped reading chunks', run.stderr)
         self.assertIn('\\x1b', run.stderr)
         self.assertNotIn('\x1b', run.stderr)
 

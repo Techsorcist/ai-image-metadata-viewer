@@ -12,7 +12,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-from fixtures import CLI, SAMPLES, chunk, comfy_prompt, png, run_aimeta, text
+from fixtures import CLI, ROOT, SAMPLES, chunk, comfy_prompt, overlong, png, run_aimeta, text, view_env
 import aimeta  # after fixtures: that import is what puts cli/ on sys.path
 import render
 
@@ -237,6 +237,14 @@ class WarningTest(ExtractCase):
         self.assertRun(run, written=1, errors=1)
         self.assertIn(f'{path}: Failed to read zTXt chunk:', run.stderr)
         self.assertIn('a fox in the snow', path.with_suffix('.txt').read_text(encoding='utf-8'))
+
+    def test_truncated_png(self):
+        # Cut off inside IDAT: the text before it was read, and it is written, with the warning counted once.
+        path = self.put('cut.png', png(text('parameters', 'a cat\nSteps: 20, Seed: 1'), overlong(b'IDAT')))
+        run = run_aimeta('extract', path)
+        self.assertRun(run, written=1, errors=1)
+        self.assertIn(f'{path}: Stopped reading chunks:', run.stderr)
+        self.assertIn('a cat', path.with_suffix('.txt').read_text(encoding='utf-8'))
 
     def test_rerun_over_a_glob(self):
         # `extract dir/*` the second time: last run's sidecars are inputs now, and they are not PNG.

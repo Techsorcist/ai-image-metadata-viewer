@@ -82,13 +82,32 @@ App.parsers.parseA1111Text = function parseA1111Text(text) {
   }
 
   // "Key: value" pairs; the value runs either up to a comma or is quoted (may contain commas and JSON).
+  // Scanned by hand in one pass: the regexp this replaces overlapped on spaces and took
+  // cubic time, over a minute for a line padded with 10000 of them, synchronously on drop.
   const pairs = {};
-  const re = /\s*([^,:]+?):\s*("(?:\\.|[^\\"])*"|[^,]*)(?:,|$)/g;
-  let m;
-  while ((m = re.exec(paramLine)) !== null) {
-    if (m.index === re.lastIndex) re.lastIndex++;
-    const key = m[1].trim();
-    let value = m[2].trim();
+  let pos = 0;
+  while (pos < paramLine.length) {
+    // A comma or a colon cannot start a key.
+    if (paramLine[pos] === ',' || paramLine[pos] === ':') { pos++; continue; }
+    let colon = pos;
+    while (colon < paramLine.length && paramLine[colon] !== ',' && paramLine[colon] !== ':') colon++;
+    if (colon === paramLine.length) break;
+    // No colon before the comma: no key in this segment.
+    if (paramLine[colon] === ',') { pos = colon + 1; continue; }
+    const key = paramLine.slice(pos, colon).trim();
+    let start = colon + 1;
+    while (start < paramLine.length && /\s/.test(paramLine[start])) start++;
+    let end = start;
+    if (paramLine[start] === '"') {
+      // Up to the closing quote, escapes skipped; an unterminated one takes the rest of the line.
+      end++;
+      while (end < paramLine.length && paramLine[end] !== '"') end += paramLine[end] === '\\' ? 2 : 1;
+      end = Math.min(end + 1, paramLine.length);
+    }
+    // Then up to the next comma: only spaces after a proper quoted value, the rest of a value that was not one.
+    while (end < paramLine.length && paramLine[end] !== ',') end++;
+    let value = paramLine.slice(start, end).trim();
+    pos = end + 1;
     if (value.startsWith('"') && value.endsWith('"')) {
       try { value = JSON.parse(value); } catch (_) { value = value.slice(1, -1); }
     }

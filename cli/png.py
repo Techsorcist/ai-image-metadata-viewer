@@ -113,23 +113,26 @@ def read(data):
     """Dimensions from IHDR and the list of text entries.
 
     Errors in individual chunks do not abort parsing, they go to warnings.
-    A broken chunk structure raises PngError, as App.png.read rejects.
+    A broken chunk structure stops the walk with a warning, and what was read before it stays.
     """
     result = {'width': None, 'height': None, 'bitDepth': None, 'colorType': None, 'entries': [], 'warnings': []}
-    for ctype, chunk in _chunks(data):
-        if ctype == 'IHDR':
-            # In JS the DataView throws here, with a message only a DataView could love.
-            if len(chunk) < 8:
-                raise PngError('IHDR chunk is too short')
-            result['width'] = int.from_bytes(chunk[0:4], 'big')
-            result['height'] = int.from_bytes(chunk[4:8], 'big')
-            result['bitDepth'] = _byte(chunk, 8)
-            result['colorType'] = _byte(chunk, 9)
-            continue
-        if ctype not in TEXT_TYPES:
-            continue
-        try:
-            result['entries'].append(_decode_text(ctype, chunk))
-        except (PngError, zlib.error) as e:
-            result['warnings'].append(f'Failed to read {ctype} chunk: {e}')
+    try:
+        for ctype, chunk in _chunks(data):
+            if ctype == 'IHDR':
+                if len(chunk) < 8:
+                    raise PngError('IHDR chunk is too short')
+                result['width'] = int.from_bytes(chunk[0:4], 'big')
+                result['height'] = int.from_bytes(chunk[4:8], 'big')
+                result['bitDepth'] = _byte(chunk, 8)
+                result['colorType'] = _byte(chunk, 9)
+                continue
+            if ctype not in TEXT_TYPES:
+                continue
+            try:
+                result['entries'].append(_decode_text(ctype, chunk))
+            except (PngError, zlib.error) as e:
+                result['warnings'].append(f'Failed to read {ctype} chunk: {e}')
+    except PngError as e:
+        # A1111, ComfyUI and PIL write their text before IDAT: a file cut off in the pixels still has it.
+        result['warnings'].append(f'Stopped reading chunks: {e}')
     return result

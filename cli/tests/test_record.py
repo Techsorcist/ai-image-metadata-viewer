@@ -1,4 +1,5 @@
 """Source layer and engine: png.py, record.py and the bridge, on files that are broken in instructive ways."""
+import time
 import unittest
 import zlib
 
@@ -52,13 +53,34 @@ class MalformedPngTest(EngineCase):
             'ztxt-trailing': (png(chunk(b'zTXt', ztxt + stream + b'junk')), 'Failed to read zTXt chunk:'),
             'ztxt-method-1': (png(chunk(b'zTXt', b'parameters\x00\x01' + stream)), 'Failed to read zTXt chunk:'),
             'ztxt-not-zlib': (png(chunk(b'zTXt', ztxt + b'definitely not deflate')), 'Failed to read zTXt chunk:'),
-            'ihdr-short': (png(ihdr=chunk(b'IHDR', b'\x00\x00\x00\x08')), 'PNG parse error:'),
-            'chunk-past-eof': (png(overlong(b'tEXt')), 'PNG parse error:'),
+            'ihdr-short': (png(ihdr=chunk(b'IHDR', b'\x00\x00\x00\x08')), 'Stopped reading chunks: IHDR chunk is too short'),
+            'chunk-past-eof': (png(overlong(b'tEXt')), 'Stopped reading chunks:'),
             'text-without-nul': (png(chunk(b'tEXt', b'parameters only')), 'Failed to read tEXt chunk:'),
         }
         for name, (data, prefix) in cases.items():
             with self.subTest(name):
                 self.assertWarning(self.record(f'{name}.png', data), prefix)
+
+    def test_truncated_file_keeps_text_before_the_cut(self):
+        # A1111, ComfyUI and PIL write their text before IDAT, so a file cut off in the pixels still has it.
+        r = self.record('cut.png', png(text('parameters', 'a cat\nSteps: 20, Seed: 1'), overlong(b'IDAT')))
+        self.assertEqual(r['generator']['id'], 'a1111')
+        self.assertEqual(r['card']['positive']['text'], 'a cat')
+        self.assertEqual((r['width'], r['height']), (8, 8))
+        self.assertWarning(r, 'Stopped reading chunks:')
+
+
+class A1111TextTest(EngineCase):
+    def test_padded_parameter_line(self):
+        # The old pair regexp overlapped on spaces: cubic time, half a minute for 3000 of them in QuickJS,
+        # and the browser ran the same regexp synchronously on drop.
+        padded = 'cat\nNegative prompt: bad\nSteps: 1, ' + ' ' * 3000 + 'x, Seed: 5'
+        start = time.perf_counter()
+        r = self.record('padded.png', png(text('parameters', padded)))
+        self.assertLess(time.perf_counter() - start, 3)
+        self.assertEqual(r['generator']['id'], 'a1111')
+        params = {p['label']: p['value'] for p in r['card']['params']}
+        self.assertEqual((params['Steps'], params['Seed']), ('1', '5'))
 
 
 if __name__ == '__main__':

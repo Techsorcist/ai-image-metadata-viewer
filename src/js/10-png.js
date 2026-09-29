@@ -86,23 +86,31 @@ App.png = (() => {
 
   // Main entry point: dimensions from IHDR and the list of text entries.
   // Errors in individual chunks do not abort parsing, they go to warnings.
+  // A broken chunk structure stops the walk with a warning, and what was read before it stays.
   async function read(bytes) {
     const result = { width: null, height: null, bitDepth: null, colorType: null, entries: [], warnings: [] };
-    for (const chunk of chunks(bytes)) {
-      if (chunk.type === 'IHDR') {
-        const view = new DataView(chunk.data.buffer, chunk.data.byteOffset, chunk.data.byteLength);
-        result.width = view.getUint32(0);
-        result.height = view.getUint32(4);
-        result.bitDepth = chunk.data[8];
-        result.colorType = chunk.data[9];
-        continue;
+    try {
+      for (const chunk of chunks(bytes)) {
+        if (chunk.type === 'IHDR') {
+          // Checked here, or the DataView throws a RangeError only a DataView could love.
+          if (chunk.data.length < 8) throw new Error('IHDR chunk is too short');
+          const view = new DataView(chunk.data.buffer, chunk.data.byteOffset, chunk.data.byteLength);
+          result.width = view.getUint32(0);
+          result.height = view.getUint32(4);
+          result.bitDepth = chunk.data[8];
+          result.colorType = chunk.data[9];
+          continue;
+        }
+        if (chunk.type !== 'tEXt' && chunk.type !== 'zTXt' && chunk.type !== 'iTXt') continue;
+        try {
+          result.entries.push(await decodeText(chunk));
+        } catch (e) {
+          result.warnings.push(`Failed to read ${chunk.type} chunk: ${e.message}`);
+        }
       }
-      if (chunk.type !== 'tEXt' && chunk.type !== 'zTXt' && chunk.type !== 'iTXt') continue;
-      try {
-        result.entries.push(await decodeText(chunk));
-      } catch (e) {
-        result.warnings.push(`Failed to read ${chunk.type} chunk: ${e.message}`);
-      }
+    } catch (e) {
+      // A1111, ComfyUI and PIL write their text before IDAT: a file cut off in the pixels still has it.
+      result.warnings.push(`Stopped reading chunks: ${e.message}`);
     }
     return result;
   }
