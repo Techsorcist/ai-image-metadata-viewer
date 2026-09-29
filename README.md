@@ -60,7 +60,7 @@ It also flags values that look like private data, such as local paths with your 
 
 Optional. The viewer is the HTML page; `cli/aimeta` is a side door for a folder of images and a terminal. It runs the same parsers inside an embedded QuickJS ([quickjs-ng](https://github.com/genotrance/quickjs-ng)), never touches your images and reads PNG only, as the page does.
 
-It needs a clone of the repository, a POSIX shell and Python 3.10+. The first run sets up `cli/.venv`, the only time it goes online; after a Python upgrade, delete `cli/.venv`. To call it from anywhere:
+It needs a clone of the repository, a POSIX shell and Python 3.10+. It goes online only to set up `cli/.venv`: on the first run, after `cli/requirements.txt` changes and after the venv is deleted, which is also the cure for a Python upgrade. To call it from anywhere:
 
 ```sh
 ln -s "$PWD/cli/aimeta" ~/.local/bin/aimeta
@@ -75,9 +75,10 @@ aimeta extract -r --out-dir ~/meta ~/gens      # the same tree under ~/meta
 aimeta extract -f json --one all.jsonl ~/gens  # one JSON object per image
 ```
 
-Levels: `basic` (default: prompts, parameters, models), `card`, `full` (plus the raw chunks). Formats: `text`, `json`, `a1111` (basic only).
+Levels: `basic` (default: prompts, parameters, models), `card`, `full` (plus the raw chunks). Formats: `text` and `a1111` (basic only) for both commands, `json` for `extract` only.
 
-- Existing outputs are skipped; `--force` replaces them, but only plain text files, never an image.
+- Existing outputs are skipped, and an existing `--one FILE` stops the run before it starts (exit 2); `--force` overwrites both.
+- `--force` checks the bytes, not the name: it never overwrites an image, but it does overwrite any plain text file at an output path, a workflow `image.json` next to `image.png` or an SVG included, so keep those out of the output folder.
 - Non-PNG files and images without metadata produce nothing, so a rerun over `dir/*` is safe.
 - The summary goes to stderr; exit code 1 on a file error, 2 on bad arguments.
 - `[private]` in `view` is a hint, not an audit: read the raw chunks before publishing an image.
