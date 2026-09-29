@@ -164,14 +164,25 @@ class A1111Test(EngineCase):
         self.assertEqual(values(again), values(source))
 
     def test_names_and_quoting(self):
-        r = self.record('names.png', png(text('prompt', comfy_prompt('a cat', 'blurry'))))
+        r = self.record('names.png', png(text('prompt', comfy_prompt('a cat', 'blurry \x1b[2J'))))
         out = render.to_a1111(render.select(r, 'card'))
-        self.assertEqual(out.splitlines()[:2], ['a cat', 'Negative prompt: blurry'])
+        # view -f a1111 prints this to the terminal as well: control characters come out escaped.
+        self.assertEqual(out.splitlines()[:2], ['a cat', 'Negative prompt: blurry \\x1b[2J'])
         self.assertIn('CFG scale: 7', out)
         self.assertIn('Size: 512x512', out)
         self.assertNotIn('\x1b', out)
-        model = dict(render.select(r, 'card'), params=[{'label': 'Note', 'value': 'a, b: c', 'sub': None}])
-        self.assertIn('Note: "a, b: c"', render.to_a1111(model))
+        params = [{'label': 'Steps', 'value': '20', 'sub': None}, {'label': 'Note', 'value': 'a, b: c', 'sub': None}]
+        self.assertIn('Note: "a, b: c"', render.to_a1111(dict(render.select(r, 'card'), params=params)))
+
+    def test_no_steps_no_a1111(self):
+        # Without `Steps: <digits>` our own detector (30-detect.js) would not know the text for A1111.
+        prompt = comfy_prompt('a cat')
+        del prompt['5']['inputs']['steps']
+        model = render.select(self.record('no-steps.png', png(text('prompt', prompt))), 'card')
+        with self.assertRaisesRegex(ValueError, 'needs a Steps value'):
+            render.to_a1111(model)
+        with self.assertRaises(ValueError):
+            render.to_a1111(dict(model, params=[{'label': 'Steps', 'value': 'twenty', 'sub': None}]))
 
     def test_passes_are_counted_not_shown(self):
         out = render.to_a1111(render.select(self.sample('syn-comfyui.png'), 'card'))

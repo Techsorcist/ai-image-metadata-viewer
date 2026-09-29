@@ -118,7 +118,7 @@ def view(*args, **env):
                           encoding='utf-8', errors='replace', timeout=60)
 
 
-def run_aimeta(*args, **env):
+def run_aimeta(*args, cwd=ROOT, **env):
     """`aimeta ARGS` for any command, same environment and decoding as view."""
-    return subprocess.run([sys.executable, str(CLI / 'aimeta.py'), *map(os.fspath, args)], cwd=ROOT,
+    return subprocess.run([sys.executable, str(CLI / 'aimeta.py'), *map(os.fspath, args)], cwd=cwd,
                           env=view_env(**env), capture_output=True, encoding='utf-8', errors='replace', timeout=60)

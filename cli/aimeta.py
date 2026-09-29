@@ -5,6 +5,7 @@ finds cli/png.py and not whatever PyPI package happens to share the name.
 """
 import argparse
 import os
+import re
 import sys
 
 import render
@@ -60,6 +61,10 @@ def cmd_view(args):
         except RecursionError:
             text = ''
             record['warnings'].append(TOO_DEEP)
+        except ValueError as e:
+            # A card that A1111 text cannot carry: reported against the file, same as above.
+            text = ''
+            record['warnings'].append(str(e))
         if i:
             print()
         sys.stdout.write(text)
@@ -75,10 +80,10 @@ def cmd_view(args):
 SUFFIXES = {'text': '.txt', 'json': '.json', 'a1111': '.txt'}
 
 
-def open_output(path):
+def open_output(path, mode='w'):
     # Same reason as stdout in main: a lone surrogate becomes \ud83d, which in JSON even
     # happens to be a valid escape. newline='\n' keeps the bytes the same on every OS.
-    return open(path, 'w', encoding='utf-8', errors='backslashreplace', newline='\n')
+    return open(path, mode, encoding='utf-8', errors='backslashreplace', newline='\n')
 
 
 def usage_error(message):
@@ -119,9 +124,18 @@ def collect(paths, recursive, fail):
     return found
 
 
+# Descriptor paths, the caller's own streams. realpath is no help: it follows /dev/stdout to the
+# file behind `>> log`, and a plain file in /dev/shm starts with /dev/ all the same.
+_FD_PATH = re.compile(r'/dev/(stdout|stderr|fd/\d+)|/proc/(self|\d+)/fd/\d+')
+
+
 def special(path):
-    """An existing FIFO, device, /dev/stdout or >(...): nothing stored there to lose, and nothing to read."""
-    return os.path.exists(path) and (not os.path.isfile(path) or os.path.realpath(path).startswith('/dev/'))
+    """An existing FIFO, device or >(...), or a descriptor path such as /dev/stdout: the caller's stream.
+
+    Written into, never read: a pipe has nothing to read, and whatever the file behind
+    `>> log` already holds is the caller's, not a previous output of ours.
+    """
+    return os.path.exists(path) and (not os.path.isfile(path) or _FD_PATH.fullmatch(os.path.normpath(path)) is not None)
 
 
 def replaceable(path):
@@ -194,6 +208,9 @@ def extract(engine, inputs, args, out, counts):
             except RecursionError:
                 report(path, [TOO_DEEP])
                 failed = True
+            except ValueError as e:
+                report(path, [str(e)])
+                failed = True
             if text is None and not failed:
                 counts['empty'] += 1
         else:
@@ -245,8 +262,9 @@ def cmd_extract(args):
     if args.one == '' or args.out_dir == '':
         return usage_error('empty --one or --out-dir')
     if args.one == '-':
-        # JSONL is for machines, and they expect UTF-8 whatever the locale says.
-        sys.stdout.reconfigure(encoding='utf-8')
+        # JSONL is for machines, and they expect UTF-8 whatever the locale says. errors again:
+        # a new encoding quietly resets it to strict, as documented, which is not the same as expected.
+        sys.stdout.reconfigure(encoding='utf-8', errors='backslashreplace')
     one_file = args.one if args.one != '-' else None
     if one_file and os.path.lexists(one_file) and not special(one_file):
         if not args.force:
@@ -267,7 +285,9 @@ def cmd_extract(args):
     engine = Engine()
     if one_file:
         try:
-            with open_output(one_file) as out:
+            # Append into a stream: 'w' reopens /dev/stdout with O_TRUNC and wipes the log behind `>>`.
+            # A pipe or a terminal does not care either way.
+            with open_output(one_file, 'a' if special(one_file) else 'w') as out:
                 extract(engine, inputs, args, out, counts)
         except OSError as e:
             # Everything else in the run reports its own failures, so this is the --one file,
@@ -305,7 +325,7 @@ def build_parser():
     extract.add_argument('paths', nargs='+', metavar='PATH',
                          help='image files, taken as given, or directories to take the *.png files from')
     extract.add_argument('-f', '--format', choices=tuple(SUFFIXES), default='text',
-                         help='text: same as view, without colors; json: the card model, JSONL with --one; '
+                         help='text: same as view, without colors and [private] markers; json: the card model, JSONL with --one; '
                               'a1111: prompt and settings as A1111 writes them, basic level only (default: text)')
     add_level(extract)
     where = extract.add_mutually_exclusive_group()

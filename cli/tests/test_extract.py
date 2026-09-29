@@ -3,6 +3,7 @@ import io
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -170,6 +171,26 @@ class SourceProtectionTest(ExtractCase):
         run_aimeta('extract', '--force', self.tmp / 'd')
         self.assertEqual(impostor.read_bytes(), avif)
 
+    def test_plain_files_under_dev(self):
+        # /dev/shm holds ordinary files: living under /dev makes nothing a device.
+        try:
+            tmp = tempfile.TemporaryDirectory(dir='/dev/shm')
+        except OSError:
+            self.skipTest('no writable /dev/shm here')
+        self.addCleanup(tmp.cleanup)
+        shm = Path(tmp.name)
+        first = shm / '1.png'
+        first.write_bytes((SAMPLES / 'syn-a1111.png').read_bytes())
+        run = run_aimeta('extract', '--one', first, self.copy('2.png', 'syn-comfyui.png'))
+        self.assertEqual(run.returncode, 2, run.stderr)
+        self.assertIn(f'{first} exists, add --force to overwrite it', run.stderr)
+        self.assertEqual(first.read_bytes(), (SAMPLES / 'syn-a1111.png').read_bytes())
+        # And last run's sidecar there is as replaceable as anywhere else.
+        sidecar = shm / '1.txt'
+        sidecar.write_text('stale\n', encoding='utf-8')
+        self.assertRun(run_aimeta('extract', '--force', first), written=1)
+        self.assertIn(str(first), sidecar.read_text(encoding='utf-8'))
+
 
 class OneTest(ExtractCase):
     def test_jsonl_to_stdout(self):
@@ -205,6 +226,26 @@ class OneTest(ExtractCase):
                 self.assertEqual(run.returncode, 0, run.stderr)
                 self.assertEqual(json.loads(run.stdout)['generator']['id'], 'a1111')
 
+    def test_one_into_redirected_stdout(self):
+        # `--one /dev/stdout >> log`: the shell appends, and so must we, or the log is gone.
+        log = self.put('log.txt', b'previous run\n')
+        command = [sys.executable, str(CLI / 'aimeta.py'), 'extract', '-f', 'json', '--one', '/dev/stdout',
+                   str(self.copy('a.png', 'syn-a1111.png'))]
+        for force in ((), ('--force',)):
+            with self.subTest(force=bool(force)):
+                run = subprocess.run(['sh', '-c', f'{shlex.join(command + list(force))} >> {shlex.quote(str(log))}'],
+                                     cwd=ROOT, env=view_env(), capture_output=True, encoding='utf-8', timeout=60)
+                self.assertEqual(run.returncode, 0, run.stderr)
+                first, *models = log.read_text(encoding='utf-8').splitlines()
+                self.assertEqual(first, 'previous run')
+                self.assertEqual(json.loads(models[-1])['generator']['id'], 'a1111')
+
+    def test_lone_surrogate_on_stdout(self):
+        path = self.put('surrogate.png', png(text('prompt', comfy_prompt('cute cat \ud83d'))))
+        run = run_aimeta('extract', '-f', 'json', '--one', '-', path)
+        self.assertRun(run, written=1)
+        self.assertIn('cute cat \\ud83d', run.stdout)
+
     def test_utf16_previous_run(self):
         # PowerShell 5.1 redirects in UTF-16: NUL bytes everywhere, and still text.
         target = self.put('all.jsonl', '{"a": 1}\n'.encode('utf-16'))
@@ -226,6 +267,16 @@ class OutputContentTest(ExtractCase):
         # Strict UTF-8 on the way back: a surrogate smuggled in as bytes would not get past this.
         with open(path.with_suffix('.json'), encoding='utf-8') as f:
             self.assertEqual(json.load(f)['positive']['text'], 'cute cat \ud83d')
+
+    def test_a1111_without_steps(self):
+        # Our own reader would not even recognise such a text as A1111: an error, not a sidecar.
+        prompt = comfy_prompt('a cat')
+        del prompt['5']['inputs']['steps']
+        path = self.put('no-steps.png', png(text('prompt', prompt)))
+        run = run_aimeta('extract', '-f', 'a1111', path)
+        self.assertRun(run, errors=1)
+        self.assertIn(f'{path}: A1111 format needs a Steps value', run.stderr)
+        self.assertFalse(path.with_suffix('.txt').exists())
 
 
 class WarningTest(ExtractCase):
@@ -262,9 +313,10 @@ class WarningTest(ExtractCase):
 
     def test_empty_destination(self):
         # An unset shell variable, not a wish to write into the current directory.
+        # Which is why the current directory is the temporary one here, not the repository.
         for flag in ('--one', '--out-dir'):
             with self.subTest(flag=flag):
-                run = run_aimeta('extract', flag, '', self.samples())
+                run = run_aimeta('extract', flag, '', self.samples(), cwd=self.tmp)
                 self.assertEqual(run.returncode, 2, run.stderr)
                 self.assertEqual(list(self.tmp.rglob('*.txt')), [])
 

@@ -200,6 +200,8 @@ def to_a1111(model):
     Takes a card-level model but uses only prompts, params and the number of passes: pasted into
     A1111 or Forge (Read generation parameters) it fills the fields they know and stores the rest.
     Extra passes are not shown, only counted, in a key A1111 keeps without understanding.
+    Raises ValueError when there is something to write but no numeric Steps: our own reader
+    (30-detect.js) spots the text by `Steps: <digits>`, and what it cannot read back is no A1111 text.
     """
     model = _clean(model)
     lines = []
@@ -217,6 +219,8 @@ def to_a1111(model):
         pairs.append((key, value))
     # A stable sort: the known keys in A1111's order, everything else after them as the card had it.
     pairs.sort(key=lambda kv: _A1111_ORDER.index(kv[0]) if kv[0] in _A1111_ORDER else len(_A1111_ORDER))
+    if (lines or pairs) and not any(k == 'Steps' and re.fullmatch('[0-9]+', v) for k, v in pairs):
+        raise ValueError('A1111 format needs a Steps value, use -f text')
     passes = model.get('passes') or []
     if len(passes) > 1:
         pairs.append(('Passes', f'{len(passes)} (first shown)'))
